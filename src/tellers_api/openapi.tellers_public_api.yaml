@@ -1,0 +1,868 @@
+openapi: 3.1.0
+info:
+  title: FastAPI
+  version: 0.1.0
+paths:
+  /users/assets/upload_urls:
+    post:
+      tags:
+        - auth-required
+      summary: Create Upload Urls
+      operationId: create_upload_urls_users_assets_upload_urls_post
+      parameters:
+        - name: x-api-key
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: X-Api-Key
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/AssetUploadRequest"
+              title: Assets
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AssetUploadResponse"
+                title: Response Create Upload Urls Users Assets Upload Urls Post
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /users/assets/preprocess:
+    post:
+      tags:
+        - auth-required
+      summary: Process Assets
+      operationId: process_assets_users_assets_preprocess_post
+      parameters:
+        - name: priority
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/TaskPriority"
+            default: highest
+        - name: x-api-key
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: X-Api-Key
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProcessAssetsRequest"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RequestTaskResponse"
+                title: Response Process Assets Users Assets Preprocess Post
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /agent/response/{chat_id}:
+    delete:
+      tags:
+        - auth-required
+      summary: Cancel Response
+      operationId: cancel_response_agent_response__chat_id__delete
+      parameters:
+        - name: chat_id
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Chat Id
+        - name: x-api-key
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: X-Api-Key
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Authorization
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: string
+                title: Response Cancel Response Agent Response  Chat Id  Delete
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+    get:
+      tags:
+        - auth-required
+      summary: Stream Chat Messages
+      description: "Stream new chat messages as they are added to the database.
+
+        Returns SSE events with message data."
+      operationId: stream_chat_messages_agent_response__chat_id__get
+      parameters:
+        - name: chat_id
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Chat Id
+        - name: after
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+                format: date-time
+              - type: "null"
+            title: After
+        - name: x-api-key
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: X-Api-Key
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Authorization
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /agent/response:
+    post:
+      tags:
+        - auth-required
+      summary: Process Agent Message
+      operationId: process_agent_message_agent_response_post
+      parameters:
+        - name: priority
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/TaskPriority"
+            default: highest
+        - name: x-api-key
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: X-Api-Key
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentMessageRequest"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /agent/use-tool:
+    post:
+      tags:
+        - auth-required
+      summary: Use Agent Tool
+      operationId: use_agent_tool_agent_use_tool_post
+      parameters:
+        - name: x-api-key
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: X-Api-Key
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UseAgentToolRequest"
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /agent/chats/list:
+    get:
+      tags:
+        - auth-required
+      summary: List Chats
+      operationId: list_chats_agent_chats_list_get
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+            title: Limit
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+            title: Offset
+        - name: before
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+                format: date-time
+              - type: "null"
+            title: Before
+        - name: after
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+                format: date-time
+              - type: "null"
+            title: After
+        - name: x-api-key
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: X-Api-Key
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Authorization
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatHistoryResponse"
+                title: Response List Chats Agent Chats List Get
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+  /agent/chat/{chat_id}/messages:
+    get:
+      tags:
+        - auth-required
+      summary: Get Chat
+      operationId: get_chat_agent_chat__chat_id__messages_get
+      parameters:
+        - name: chat_id
+          in: path
+          required: true
+          schema:
+            type: string
+            title: Chat Id
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+            title: Offset
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            title: Limit
+        - name: before
+          in: query
+          required: false
+          schema:
+            anyOf:
+              - type: string
+                format: date-time
+              - type: "null"
+            title: Before
+        - name: x-api-key
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: X-Api-Key
+        - name: authorization
+          in: header
+          required: false
+          schema:
+            anyOf:
+              - type: string
+              - type: "null"
+            title: Authorization
+      responses:
+        "200":
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  anyOf:
+                    - $ref: "#/components/schemas/ChatMessageUserResponse"
+                    - $ref: "#/components/schemas/ChatMessageAgentResponse"
+                title: Response Get Chat Agent Chat  Chat Id  Messages Get
+        "422":
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HTTPValidationError"
+components:
+  schemas:
+    AgentMessageRequest:
+      properties:
+        message:
+          type: string
+          title: Message
+          description: The message to send to the agent
+        chat_id:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Chat Id
+          description: Optional chat ID for conversation tracking
+        previous_response_id:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Previous Response Id
+          description:
+            The ID of the previous response to the model. Use this to create
+            multi-turn conversations.
+        llm_verbosity:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+          title: Llm Verbosity
+          description:
+            Range of number of tokens that can be generated by the LLM,
+            higher values yield more verbose responses.
+          default: low
+        llm_reasoning_effort:
+          anyOf:
+            - type: string
+              enum:
+                - minimal
+                - low
+                - medium
+                - high
+            - type: "null"
+          title: Llm Reasoning Effort
+          description:
+            "Controls reasoning effort: higher values yield more precise
+            but slower responses."
+          default: low
+        context:
+          anyOf:
+            - $ref: "#/components/schemas/AppContext"
+            - type: "null"
+          description: The app context when the response is sent.
+        tools:
+          items:
+            type: string
+          type: array
+          title: Tools
+          description: The tools to use to generate the response
+          default:
+            - generate_video
+            - create_project
+            - describe_video
+            - get_source_media_duration
+            - web_search_preview
+      additionalProperties: false
+      type: object
+      required:
+        - message
+      title: AgentMessageRequest
+    AppContext:
+      properties:
+        current_playback_time:
+          anyOf:
+            - type: number
+            - type: "null"
+          title: Current Playback Time
+          description:
+            The current playback time in the project when the response
+            is sent.
+        on_screen_asset:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: On Screen Asset
+          description: The id of the asset on screen when the response is sent.
+        on_screen_project:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: On Screen Project
+          description: The id of the project on screen when the response is sent.
+        selected_clips:
+          anyOf:
+            - items:
+                type: string
+              type: array
+            - type: "null"
+          title: Selected Clips
+          description: The ids of the clips selected when the response is sent.
+        selected_assets:
+          anyOf:
+            - items:
+                type: string
+              type: array
+            - type: "null"
+          title: Selected Assets
+          description: The ids of the assets selected when the response is sent.
+        selected_projects:
+          anyOf:
+            - items:
+                type: string
+              type: array
+            - type: "null"
+          title: Selected Projects
+          description: The ids of the projects selected when the response is sent.
+      additionalProperties: false
+      type: object
+      title: AppContext
+    AssetUploadRequest:
+      properties:
+        content_length:
+          type: integer
+          title: Content Length
+          description: The content length of the asset in bytes
+        upload_id:
+          type: string
+          title: Upload Id
+        source_file:
+          $ref: "#/components/schemas/SourceFileInfo"
+      type: object
+      required:
+        - content_length
+        - upload_id
+        - source_file
+      title: AssetUploadRequest
+    AssetUploadResponse:
+      properties:
+        upload_id:
+          type: string
+          title: Upload Id
+        presigned_put_url:
+          type: string
+          title: Presigned Put Url
+        asset_id:
+          type: string
+          title: Asset Id
+      type: object
+      required:
+        - upload_id
+        - presigned_put_url
+        - asset_id
+      title: AssetUploadResponse
+    ChatHistoryResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        name:
+          type: string
+          title: Name
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+        - id
+        - name
+        - created_at
+        - updated_at
+      title: ChatHistoryResponse
+    ChatMessageAgentResponse:
+      properties:
+        type:
+          type: string
+          const: agent
+          title: Type
+          default: agent
+        id:
+          type: string
+          title: Id
+        agent_message:
+          additionalProperties: true
+          type: object
+          title: Agent Message
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+        - id
+        - agent_message
+        - created_at
+      title: ChatMessageAgentResponse
+    ChatMessageUserResponse:
+      properties:
+        type:
+          type: string
+          const: user
+          title: Type
+          default: user
+        id:
+          type: string
+          title: Id
+        user_message:
+          type: string
+          title: User Message
+        enabled_tools:
+          items:
+            type: string
+          type: array
+          title: Enabled Tools
+        verbosity:
+          type: string
+          title: Verbosity
+        reasoning_effort:
+          type: string
+          title: Reasoning Effort
+        context:
+          additionalProperties: true
+          type: object
+          title: Context
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+        - id
+        - user_message
+        - enabled_tools
+        - verbosity
+        - reasoning_effort
+        - context
+        - created_at
+      title: ChatMessageUserResponse
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: "#/components/schemas/ValidationError"
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    ProcessAssetsRequest:
+      properties:
+        assets:
+          items:
+            $ref: "#/components/schemas/AssetUploadResponse"
+          type: array
+          title: Assets
+        version:
+          anyOf:
+            - $ref: "#/components/schemas/VersionReference"
+            - type: "null"
+        cutter_sensitivity:
+          type: number
+          title: Cutter Sensitivity
+          default: 0.5
+      type: object
+      required:
+        - assets
+        - version
+      title: ProcessAssetsRequest
+    RequestTaskResponse:
+      properties:
+        task_id:
+          type: string
+          title: Task Id
+        error:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Error
+      type: object
+      required:
+        - task_id
+      title: RequestTaskResponse
+    SourceFileInfo:
+      properties:
+        sourceName:
+          type: string
+          title: Sourcename
+        sourceUrl:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Sourceurl
+        sourceIconUrl:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Sourceiconurl
+        authors:
+          items:
+            type: string
+          type: array
+          title: Authors
+        creationDatetime:
+          anyOf:
+            - type: integer
+            - type: "null"
+          title: Creationdatetime
+        additionDatetime:
+          type: integer
+          title: Additiondatetime
+        isCitationRequired:
+          anyOf:
+            - type: boolean
+            - type: "null"
+          title: Iscitationrequired
+        citation:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Citation
+        reuseConditionInfo:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Reuseconditioninfo
+        inAppPath:
+          items:
+            type: string
+          type: array
+          title: Inapppath
+        title:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Title
+        description:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Description
+        keywords:
+          items:
+            type: string
+          type: array
+          title: Keywords
+        duration_seconds:
+          anyOf:
+            - type: number
+            - type: "null"
+          title: Duration Seconds
+        sora_remix_id:
+          anyOf:
+            - type: string
+            - type: "null"
+          title: Sora Remix Id
+        sora_remix_id_created_at:
+          anyOf:
+            - type: string
+              format: date-time
+            - type: "null"
+          title: Sora Remix Id Created At
+      type: object
+      required:
+        - sourceName
+        - sourceUrl
+        - sourceIconUrl
+        - authors
+        - creationDatetime
+        - additionDatetime
+        - inAppPath
+        - title
+        - description
+        - keywords
+      title: SourceFileInfo
+    TaskPriority:
+      type: string
+      enum:
+        - highest
+        - high
+        - medium
+        - low
+        - lowest
+      title: TaskPriority
+      description: Task priority is used to prioritize tasks in the queue.
+    UseAgentToolRequest:
+      properties:
+        tool_id:
+          type: string
+          title: Tool Id
+          description: The id of the tool to use
+        tool_arguments:
+          additionalProperties: true
+          type: object
+          title: Tool Arguments
+          description: The arguments to pass to the tool
+      type: object
+      required:
+        - tool_id
+        - tool_arguments
+      title: UseAgentToolRequest
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+              - type: string
+              - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+      type: object
+      required:
+        - loc
+        - msg
+        - type
+      title: ValidationError
+    VersionReference:
+      properties:
+        embedding_space:
+          type: string
+          title: Embedding Space
+        embedding_strategy:
+          type: string
+          title: Embedding Strategy
+        dimensionality:
+          type: integer
+          title: Dimensionality
+      type: object
+      required:
+        - embedding_space
+        - embedding_strategy
+        - dimensionality
+      title: VersionReference

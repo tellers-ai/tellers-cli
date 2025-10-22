@@ -1,0 +1,19 @@
+[package]
+name = "tellers"
+version = "0.1.0"
+edition = "2021"
+description = "Tellers CLI - interact with tellers.ai from the terminal"
+license = ""
+repository = "https://github.com/tellers-oss/tellers-cli"
+
+[dependencies]
+tellers_api_client = { path = "generated/tellers_api_client" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+clap = { version = "4.5", features = ["derive"] }
+ratatui = "0.29"
+crossterm = "0.28"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
+
+[dev-dependencies]
+assert_cmd = "2.0"
