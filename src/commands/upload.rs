@@ -1,4 +1,5 @@
 use clap::Args;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -7,9 +8,7 @@ use walkdir::WalkDir;
 
 use tellers_api_client::apis::auth_required_api as api;
 use tellers_api_client::apis::configuration::Configuration;
-use tellers_api_client::models::{
-    AssetUploadRequest, AssetUploadResponse, ProcessAssetsRequest, SourceFileInfo,
-};
+use tellers_api_client::models::{AssetUploadRequest, AssetUploadResponse, SourceFileInfo};
 
 #[derive(Args, Debug)]
 pub struct UploadArgs {
@@ -142,87 +141,23 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
     tokio::runtime::Runtime::new()
         .map_err(|e| format!("failed to start runtime: {}", e))?
         .block_on(async move {
-            // 1) Get presigned URLs
-            println!(
-                "requesting presigned URLs for {} asset(s)...",
-                requests.len()
-            );
-            let bearer = args
+            let bearer_env = args
                 .auth_bearer
                 .clone()
                 .or_else(|| std::env::var("TELLERS_AUTH_BEARER").ok())
                 .filter(|v| !v.is_empty());
-            if bearer.is_some() {
-                println!("using Authorization: Bearer ... from TELLERS_AUTH_BEARER");
-            }
-            println!(
-                "HTTP POST {}",
-                format!("{}/users/assets/upload_urls", cfg.base_path)
-            );
-            println!(
-                "headers: x-api-key={}, authorization={}",
-                "set",
-                if bearer.is_some() { "set" } else { "unset" }
-            );
-            println!("query params: (none)");
-            for (idx, r) in requests.iter().enumerate() {
-                println!(
-                    "  asset[{}]: upload_id={} content_length={} in_app_path={}",
-                    idx,
-                    r.upload_id,
-                    r.content_length,
-                    r.source_file
-                        .in_app_path
-                        .get(0)
-                        .cloned()
-                        .unwrap_or_default()
-                );
-            }
-            let bearer_header = bearer.as_deref().map(|b| {
+            let bearer_header = bearer_env.as_deref().map(|b| {
                 if b.starts_with("Bearer ") {
                     b.to_string()
                 } else {
                     format!("Bearer {}", b)
                 }
             });
-            let bearer_opt = bearer_header.as_deref();
-            let responses = api::create_upload_urls_users_assets_upload_urls_post(
-                &cfg,
-                requests,
-                Some(&api_key),
-                bearer_opt,
-            )
-            .await
-            .map_err(|e| {
-                let mut m = format!("failed to get upload urls: {}", e);
-                match &e {
-                    tellers_api_client::apis::Error::Reqwest(req_err) => {
-                        if let Some(status) = req_err.status() {
-                            m.push_str(&format!("; http_status: {}", status));
-                        }
-                        if req_err.is_builder() {
-                            m.push_str("; reqwest builder error");
-                        }
-                    }
-                    tellers_api_client::apis::Error::ResponseError(resp) => {
-                        m.push_str(&format!("; http_status: {}", resp.status));
-                        if !resp.content.is_empty() {
-                            m.push_str(&format!("; response_body: {}", resp.content));
-                        }
-                    }
-                    _ => {}
-                }
-                let mut src_opt = std::error::Error::source(&e);
-                while let Some(src) = src_opt {
-                    m.push_str(&format!("; source: {}", src));
-                    src_opt = src.source();
-                }
-                m
-            })?;
+            let responses =
+                request_presigned_urls(&cfg, &requests, &api_key, bearer_header.as_deref()).await?;
             println!("received {} presigned URL(s)", responses.len());
 
-            let mut id_to_resp: std::collections::HashMap<String, AssetUploadResponse> =
-                std::collections::HashMap::new();
+            let mut id_to_resp: HashMap<String, AssetUploadResponse> = HashMap::new();
             for r in responses.iter().cloned() {
                 id_to_resp.insert(r.upload_id.clone(), r);
             }
@@ -239,79 +174,159 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
                 }
             }
 
-            let http = reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(60))
-                .build()
-                .map_err(|e| format!("failed to build http client: {}", e))?;
-            for (i, file_path) in files.iter().enumerate() {
-                let content_length = std::fs::metadata(file_path)
-                    .map_err(|e| format!("failed to stat {}: {}", file_path.display(), e))?
-                    .len();
-
-                let upload_id = &file_upload_ids[i];
-                let upload_resp = id_to_resp
-                    .get(upload_id)
-                    .ok_or_else(|| format!("missing presigned url for upload_id {}", upload_id))?;
-                let upload_url = upload_resp.presigned_put_url.clone();
-                let host = url::Url::parse(&upload_url)
-                    .ok()
-                    .and_then(|u| u.host_str().map(|s| s.to_string()))
-                    .unwrap_or_else(|| "<unknown-host>".to_string());
-
-                println!(
-                    "uploading [{} / {}]: id={} asset={} file={} size={} bytes -> {}",
-                    i + 1,
-                    files.len(),
-                    upload_id,
-                    upload_resp.asset_id,
-                    file_path.display(),
-                    content_length,
-                    host
-                );
-
-                let mut f = File::open(file_path)
-                    .map_err(|e| format!("failed to open {}: {}", file_path.display(), e))?;
-                let mut buf = Vec::with_capacity(content_length as usize);
-                f.read_to_end(&mut buf)
-                    .map_err(|e| format!("failed to read {}: {}", file_path.display(), e))?;
-
-                let content_type = mime_guess::from_path(file_path)
-                    .first_or_text_plain()
-                    .essence_str()
-                    .to_string();
-                println!("  content-type: {}", content_type);
-
-                let started_at = std::time::Instant::now();
-                let put_res = http
-                    .put(upload_url)
-                    .header(reqwest::header::CONTENT_LENGTH, content_length)
-                    .header(reqwest::header::CONTENT_TYPE, content_type)
-                    .body(buf)
-                    .send()
-                    .await
-                    .map_err(|e| format!("upload failed for {}: {}", file_path.display(), e))?;
-
-                if !put_res.status().is_success() {
-                    let status = put_res.status();
-                    let body = put_res
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "<failed to read error body>".to_string());
-                    return Err(format!(
-                        "upload failed: {} -> status {} body: {}",
-                        file_path.display(),
-                        status,
-                        body
-                    ));
-                }
-                let elapsed = started_at.elapsed();
-                println!(
-                    "  uploaded successfully: {} ({}.{:03}s)",
-                    file_path.display(),
-                    elapsed.as_secs(),
-                    elapsed.subsec_millis()
-                );
-            }
+            upload_to_presigned_urls(&files, &file_upload_ids, &id_to_resp).await?;
             Ok(())
         })
+}
+
+async fn request_presigned_urls(
+    cfg: &Configuration,
+    requests: &Vec<AssetUploadRequest>,
+    api_key: &str,
+    bearer_opt: Option<&str>,
+) -> Result<Vec<AssetUploadResponse>, String> {
+    println!(
+        "requesting presigned URLs for {} asset(s)...",
+        requests.len()
+    );
+    println!(
+        "HTTP POST {}",
+        format!("{}/users/assets/upload_urls", cfg.base_path)
+    );
+    println!(
+        "headers: x-api-key={}, authorization={}",
+        "set",
+        if bearer_opt.is_some() { "set" } else { "unset" }
+    );
+    println!("query params: (none)");
+    for (idx, r) in requests.iter().enumerate() {
+        println!(
+            "  asset[{}]: upload_id={} content_length={} in_app_path={}",
+            idx,
+            r.upload_id,
+            r.content_length,
+            r.source_file
+                .in_app_path
+                .get(0)
+                .cloned()
+                .unwrap_or_default()
+        );
+    }
+
+    api::create_upload_urls_users_assets_upload_urls_post(
+        cfg,
+        requests.clone(),
+        Some(api_key),
+        bearer_opt,
+    )
+    .await
+    .map_err(|e| {
+        let mut m = format!("failed to get upload urls: {}", e);
+        match &e {
+            tellers_api_client::apis::Error::Reqwest(req_err) => {
+                if let Some(status) = req_err.status() {
+                    m.push_str(&format!("; http_status: {}", status));
+                }
+                if req_err.is_builder() {
+                    m.push_str("; reqwest builder error");
+                }
+            }
+            tellers_api_client::apis::Error::ResponseError(resp) => {
+                m.push_str(&format!("; http_status: {}", resp.status));
+                if !resp.content.is_empty() {
+                    m.push_str(&format!("; response_body: {}", resp.content));
+                }
+            }
+            _ => {}
+        }
+        let mut src_opt = std::error::Error::source(&e);
+        while let Some(src) = src_opt {
+            m.push_str(&format!("; source: {}", src));
+            src_opt = src.source();
+        }
+        m
+    })
+}
+
+async fn upload_to_presigned_urls(
+    files: &Vec<PathBuf>,
+    file_upload_ids: &Vec<String>,
+    id_to_resp: &HashMap<String, AssetUploadResponse>,
+) -> Result<(), String> {
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| format!("failed to build http client: {}", e))?;
+
+    for (i, file_path) in files.iter().enumerate() {
+        let content_length = std::fs::metadata(file_path)
+            .map_err(|e| format!("failed to stat {}: {}", file_path.display(), e))?
+            .len();
+
+        let upload_id = &file_upload_ids[i];
+        let upload_resp = id_to_resp
+            .get(upload_id)
+            .ok_or_else(|| format!("missing presigned url for upload_id {}", upload_id))?;
+        let upload_url = upload_resp.presigned_put_url.clone();
+        let host = url::Url::parse(&upload_url)
+            .ok()
+            .and_then(|u| u.host_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| "<unknown-host>".to_string());
+
+        println!(
+            "uploading [{} / {}]: id={} asset={} file={} size={} bytes -> {}",
+            i + 1,
+            files.len(),
+            upload_id,
+            upload_resp.asset_id,
+            file_path.display(),
+            content_length,
+            host
+        );
+
+        let mut f = File::open(file_path)
+            .map_err(|e| format!("failed to open {}: {}", file_path.display(), e))?;
+        let mut buf = Vec::with_capacity(content_length as usize);
+        f.read_to_end(&mut buf)
+            .map_err(|e| format!("failed to read {}: {}", file_path.display(), e))?;
+
+        let content_type = mime_guess::from_path(file_path)
+            .first_or_text_plain()
+            .essence_str()
+            .to_string();
+        println!("  content-type: {}", content_type);
+
+        let started_at = std::time::Instant::now();
+        let put_res = http
+            .put(upload_url)
+            .header(reqwest::header::CONTENT_LENGTH, content_length)
+            .header(reqwest::header::CONTENT_TYPE, content_type)
+            .body(buf)
+            .send()
+            .await
+            .map_err(|e| format!("upload failed for {}: {}", file_path.display(), e))?;
+
+        if !put_res.status().is_success() {
+            let status = put_res.status();
+            let body = put_res
+                .text()
+                .await
+                .unwrap_or_else(|_| "<failed to read error body>".to_string());
+            return Err(format!(
+                "upload failed: {} -> status {} body: {}",
+                file_path.display(),
+                status,
+                body
+            ));
+        }
+        let elapsed = started_at.elapsed();
+        println!(
+            "  uploaded successfully: {} ({}.{:03}s)",
+            file_path.display(),
+            elapsed.as_secs(),
+            elapsed.subsec_millis()
+        );
+    }
+
+    Ok(())
 }
