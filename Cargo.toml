@@ -7,9 +7,11 @@ license = ""
 repository = "https://github.com/tellers-oss/tellers-cli"
 
 [dependencies]
-tellers_api_client = { path = "generated/tellers_api_client" }
+tellers_api_client = { path = "generated/tellers_api_client", default-features = false, features = [
+    "rustls-tls",
+] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.5", features = ["derive", "env"] }
 ratatui = "0.29"
 crossterm = "0.28"
 serde = { version = "1.0", features = ["derive"] }
@@ -24,6 +26,7 @@ time = { version = "0.3", features = ["formatting"] }
 uuid = { version = "1", features = ["v4"] }
 bytes = "1"
 tokio-util = { version = "0.7", features = ["codec"] }
+url = "2"
 
 [dev-dependencies]
 assert_cmd = "2.0"
