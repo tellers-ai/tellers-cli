@@ -13,7 +13,9 @@ use crate::video::video_quality::parse_quality;
 use crate::video::video_quality::VideoQuality;
 use tellers_api_client::apis::auth_required_api as api;
 use tellers_api_client::apis::configuration::Configuration;
-use tellers_api_client::models::{AssetUploadRequest, AssetUploadResponse, SourceFileInfo};
+use tellers_api_client::models::{
+    AssetUploadRequest, AssetUploadResponse, ProcessAssetsRequest, SourceFileInfo,
+};
 
 #[derive(Args, Debug)]
 pub struct UploadArgs {
@@ -68,7 +70,7 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
         let mut encoded: Vec<PathBuf> = Vec::new();
         for f in &files {
             if has_video_ext(f) {
-                if args.qualities.len() >= 1 {
+                if args.qualities.len() > 1 {
                     return Err("Only supporting single quality for now".to_string());
                 }
                 let out = create_rendition(
@@ -230,6 +232,27 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
             }
 
             upload_to_presigned_urls(&files, &file_upload_ids, &id_to_resp).await?;
+
+            // Call preprocess for uploaded assets
+            let preproc_req = ProcessAssetsRequest::new(
+                responses.clone(),
+                None::<tellers_api_client::models::VersionReference>,
+            );
+            println!(
+                "triggering preprocessing for {} asset(s)...",
+                preproc_req.assets.len()
+            );
+            let preproc_tasks = api::process_assets_users_assets_preprocess_post(
+                &cfg,
+                preproc_req,
+                None,
+                Some(&api_key),
+                bearer_header.as_deref(),
+            )
+            .await
+            .map_err(|e| format!("failed to trigger preprocess: {}", e))?;
+            println!("preprocess tasks queued: {}", preproc_tasks.len());
+
             Ok(())
         })
 }
