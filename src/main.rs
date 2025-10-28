@@ -1,6 +1,6 @@
 mod cli;
 mod commands;
-mod tellers_api;
+mod video;
 
 use cli::Cli;
 

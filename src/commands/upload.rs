@@ -6,6 +6,11 @@ use std::path::PathBuf;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+use crate::video::ffmpeg::ensure_ffmpeg_available;
+use crate::video::transcode::{create_rendition, RenditionDefinition};
+use crate::video::video_file_ext::has_video_ext;
+use crate::video::video_quality::parse_quality;
+use crate::video::video_quality::VideoQuality;
 use tellers_api_client::apis::auth_required_api as api;
 use tellers_api_client::apis::configuration::Configuration;
 use tellers_api_client::models::{AssetUploadRequest, AssetUploadResponse, SourceFileInfo};
@@ -13,7 +18,10 @@ use tellers_api_client::models::{AssetUploadRequest, AssetUploadResponse, Source
 #[derive(Args, Debug)]
 pub struct UploadArgs {
     #[arg(long, default_value_t = false)]
-    pub only_proxies: bool,
+    pub local_encoding: bool,
+
+    #[arg(long, num_args = 1.., value_parser = parse_quality, default_values_t = vec![VideoQuality::P1080])]
+    pub qualities: Vec<VideoQuality>,
 
     pub path: String,
 
@@ -46,12 +54,59 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
         return Err("no files found to upload".to_string());
     }
 
-    println!("discovered {} file(s) to upload", files.len());
-    for f in &files {
-        if let Ok(md) = std::fs::metadata(f) {
-            println!("  - {} ({} bytes)", f.display(), md.len());
-        } else {
-            println!("  - {}", f.display());
+    if args.local_encoding {
+        ensure_ffmpeg_available()?;
+        println!(
+            "local encoding enabled; generating renditions in temp dir: {}",
+            args.qualities
+                .iter()
+                .map(|q| q.as_label())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+
+        let mut encoded: Vec<PathBuf> = Vec::new();
+        for f in &files {
+            if has_video_ext(f) {
+                if args.qualities.len() >= 1 {
+                    return Err("Only supporting single quality for now".to_string());
+                }
+                let out = create_rendition(
+                    f,
+                    RenditionDefinition {
+                        quality: Some(args.qualities[0]),
+                        preset: None,
+                        crf: None,
+                        audio_bitrate: None,
+                    },
+                )
+                .map_err(|e| format!("failed to encode rendition for {}: {}", f.display(), e))?;
+                encoded.push(out);
+            } else {
+                encoded.push(f.clone());
+            }
+        }
+
+        println!(
+            "prepared {} file(s) for upload (including renditions)",
+            encoded.len()
+        );
+        for f in &encoded {
+            if let Ok(md) = std::fs::metadata(f) {
+                println!("  - {} ({} bytes)", f.display(), md.len());
+            } else {
+                println!("  - {}", f.display());
+            }
+        }
+        files = encoded;
+    } else {
+        println!("discovered {} file(s) to upload", files.len());
+        for f in &files {
+            if let Ok(md) = std::fs::metadata(f) {
+                println!("  - {} ({} bytes)", f.display(), md.len());
+            } else {
+                println!("  - {}", f.display());
+            }
         }
     }
 
