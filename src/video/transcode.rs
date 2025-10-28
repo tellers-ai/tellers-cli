@@ -106,7 +106,7 @@ pub fn create_rendition(
 
     if let Some(q) = definition.quality {
         let height = q.height();
-        cmd.filter(format!("scale=-2:{}", height));
+        cmd.args(["-vf", &format!("scale=-2:{}", height)]);
     }
     if let Some(p) = definition.preset {
         cmd.preset(p.as_str());
@@ -119,6 +119,11 @@ pub fn create_rendition(
     if let Some(abr_kbps) = definition.audio_bitrate {
         cmd.args(["-b:a", &format!("{}k", abr_kbps)]);
     }
+
+    if std::env::var("TELLERS_DEBUG_FFMPEG").ok().as_deref() == Some("1") {
+        cmd.print_command();
+    }
+
     cmd.output(output.to_string_lossy().to_string());
 
     let mut child = cmd
