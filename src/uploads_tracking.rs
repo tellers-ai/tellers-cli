@@ -8,6 +8,7 @@ const UPLOADS_FILE_VERSION: &str = "0.0.1";
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UploadedFile {
     pub local_path: String,
+    pub in_app_path: String,
     pub asset_id: String,
     pub upload_request_id: String,
 }
@@ -67,6 +68,7 @@ fn save_uploads_file(file_path: &Path, data: &UploadsFile) -> Result<(), String>
 pub fn record_upload(
     user_id: &str,
     local_path: &Path,
+    in_app_path: &str,
     asset_id: &str,
     upload_request_id: &str,
 ) -> Result<(), String> {
@@ -84,9 +86,29 @@ pub fn record_upload(
 
     user_uploads.files.push(UploadedFile {
         local_path: local_path_str,
+        in_app_path: in_app_path.to_string(),
         asset_id: asset_id.to_string(),
         upload_request_id: upload_request_id.to_string(),
     });
 
     save_uploads_file(&file_path, &uploads)
+}
+
+pub fn is_file_uploaded(user_id: &str, in_app_path: &str) -> Result<bool, String> {
+    let file_path = get_uploads_file_path()?;
+    if !file_path.exists() {
+        return Ok(false);
+    }
+
+    let uploads = load_uploads_file(&file_path)?;
+
+    if let Some(user_uploads) = uploads.users.get(user_id) {
+        for uploaded_file in &user_uploads.files {
+            if uploaded_file.in_app_path == in_app_path && !uploaded_file.asset_id.is_empty() {
+                return Ok(true);
+            }
+        }
+    }
+
+    Ok(false)
 }
