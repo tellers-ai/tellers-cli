@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+use crate::auth;
+use crate::uploads_tracking;
 use crate::video::ffmpeg::ensure_ffmpeg_available;
 use crate::video::transcode::{create_rendition, RenditionDefinition};
 use crate::video::video_file_ext::has_video_ext;
@@ -121,6 +123,8 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
     cfg.base_path = api_base;
     println!("api base: {}", cfg.base_path);
 
+    let upload_request_id = Uuid::new_v4().to_string();
+
     let mut requests: Vec<AssetUploadRequest> = Vec::with_capacity(files.len());
     let mut file_upload_ids: Vec<String> = Vec::with_capacity(files.len());
     for file_path in &files {
@@ -231,7 +235,17 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
                 }
             }
 
-            upload_to_presigned_urls(&files, &file_upload_ids, &id_to_resp).await?;
+            // TODO: once change once get user info endpoint is public
+            // so that it also works with api key auth
+            let user_id = auth::get_user_id_from_bearer(bearer_header.as_deref());
+            upload_to_presigned_urls(
+                &files,
+                &file_upload_ids,
+                &id_to_resp,
+                &upload_request_id,
+                &user_id,
+            )
+            .await?;
 
             // Call preprocess for uploaded assets
             let preproc_req = ProcessAssetsRequest::new(
@@ -330,6 +344,8 @@ async fn upload_to_presigned_urls(
     files: &Vec<PathBuf>,
     file_upload_ids: &Vec<String>,
     id_to_resp: &HashMap<String, AssetUploadResponse>,
+    upload_request_id: &str,
+    user_id: &str,
 ) -> Result<(), String> {
     let http = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
@@ -404,6 +420,15 @@ async fn upload_to_presigned_urls(
             elapsed.as_secs(),
             elapsed.subsec_millis()
         );
+
+        if let Err(e) = uploads_tracking::record_upload(
+            user_id,
+            file_path,
+            &upload_resp.asset_id,
+            upload_request_id,
+        ) {
+            eprintln!("Warning: Failed to record upload in tracking file: {}", e);
+        }
     }
 
     Ok(())
