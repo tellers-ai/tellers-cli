@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -37,6 +39,9 @@ pub struct UploadArgs {
 
     #[arg(long, default_value_t = false)]
     pub force_upload: bool,
+
+    #[arg(long, default_value_t = 4)]
+    pub parallel_uploads: usize,
 }
 
 fn compute_in_app_path(
@@ -98,28 +103,34 @@ fn is_already_uploaded(
     }
 }
 
+struct FileToUpload {
+    upload_path: PathBuf,
+    original_path: PathBuf,
+}
+
 pub fn run(args: UploadArgs) -> Result<(), String> {
     let base_dir = PathBuf::from(&args.path);
     if !base_dir.exists() {
         return Err(format!("path not found: {}", base_dir.display()));
     }
 
-    let mut files: Vec<PathBuf> = Vec::new();
+    let mut original_files: Vec<PathBuf> = Vec::new();
     if base_dir.is_file() {
-        files.push(base_dir.clone());
+        original_files.push(base_dir.clone());
     } else {
         for entry in WalkDir::new(&base_dir).into_iter().filter_map(Result::ok) {
             let p = entry.path();
             if p.is_file() {
-                files.push(p.to_path_buf());
+                original_files.push(p.to_path_buf());
             }
         }
     }
 
-    if files.is_empty() {
+    if original_files.is_empty() {
         return Err("no files found to upload".to_string());
     }
 
+    let mut files_to_upload: Vec<FileToUpload> = Vec::new();
     if args.local_encoding {
         ensure_ffmpeg_available()?;
         println!(
@@ -131,14 +142,13 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
                 .join(", ")
         );
 
-        let mut encoded: Vec<PathBuf> = Vec::new();
-        for f in &files {
-            if has_video_ext(f) {
+        for original_file in &original_files {
+            if has_video_ext(original_file) {
                 if args.qualities.len() > 1 {
                     return Err("Only supporting single quality for now".to_string());
                 }
-                let out = create_rendition(
-                    f,
+                let encoded_file = create_rendition(
+                    original_file,
                     RenditionDefinition {
                         quality: Some(args.qualities[0]),
                         preset: None,
@@ -146,33 +156,50 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
                         audio_bitrate: None,
                     },
                 )
-                .map_err(|e| format!("failed to encode rendition for {}: {}", f.display(), e))?;
-                encoded.push(out);
+                .map_err(|e| {
+                    format!(
+                        "failed to encode rendition for {}: {}",
+                        original_file.display(),
+                        e
+                    )
+                })?;
+                files_to_upload.push(FileToUpload {
+                    upload_path: encoded_file,
+                    original_path: original_file.clone(),
+                });
             } else {
-                encoded.push(f.clone());
+                files_to_upload.push(FileToUpload {
+                    upload_path: original_file.clone(),
+                    original_path: original_file.clone(),
+                });
             }
         }
 
         println!(
             "prepared {} file(s) for upload (including renditions)",
-            encoded.len()
+            files_to_upload.len()
         );
-        for f in &encoded {
+        for f in &files_to_upload {
+            if let Ok(md) = std::fs::metadata(&f.upload_path) {
+                println!("  - {} ({} bytes)", f.upload_path.display(), md.len());
+            } else {
+                println!("  - {}", f.upload_path.display());
+            }
+        }
+    } else {
+        println!("discovered {} file(s) to upload", original_files.len());
+        for f in &original_files {
             if let Ok(md) = std::fs::metadata(f) {
                 println!("  - {} ({} bytes)", f.display(), md.len());
             } else {
                 println!("  - {}", f.display());
             }
         }
-        files = encoded;
-    } else {
-        println!("discovered {} file(s) to upload", files.len());
-        for f in &files {
-            if let Ok(md) = std::fs::metadata(f) {
-                println!("  - {} ({} bytes)", f.display(), md.len());
-            } else {
-                println!("  - {}", f.display());
-            }
+        for original_file in original_files {
+            files_to_upload.push(FileToUpload {
+                upload_path: original_file.clone(),
+                original_path: original_file,
+            });
         }
     }
 
@@ -200,29 +227,35 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
     let user_id = auth::get_user_id_from_bearer(bearer_header_for_auth.as_deref());
 
     if !args.force_upload {
-        let original_count = files.len();
-        files.retain(|file_path| {
-            !is_already_uploaded(file_path, &user_id, &base_dir, &args.in_app_path)
+        let original_count = files_to_upload.len();
+        files_to_upload.retain(|file_info| {
+            !is_already_uploaded(
+                &file_info.original_path,
+                &user_id,
+                &base_dir,
+                &args.in_app_path,
+            )
         });
 
-        let skipped = original_count - files.len();
+        let skipped = original_count - files_to_upload.len();
         if skipped > 0 {
             println!("skipped {} already uploaded file(s)", skipped);
         }
 
-        if files.is_empty() {
+        if files_to_upload.is_empty() {
             return Err("no files to upload (all files were already uploaded)".to_string());
         }
     }
 
     let upload_request_id = Uuid::new_v4().to_string();
 
-    let mut requests: Vec<AssetUploadRequest> = Vec::with_capacity(files.len());
-    let mut file_upload_ids: Vec<String> = Vec::with_capacity(files.len());
-    let mut file_in_app_paths: Vec<String> = Vec::with_capacity(files.len());
-    for file_path in &files {
-        let content_length = std::fs::metadata(file_path)
-            .map_err(|e| format!("failed to stat {}: {}", file_path.display(), e))?
+    let mut requests: Vec<AssetUploadRequest> = Vec::with_capacity(files_to_upload.len());
+    let mut file_upload_ids: Vec<String> = Vec::with_capacity(files_to_upload.len());
+    let mut file_in_app_paths: Vec<String> = Vec::with_capacity(files_to_upload.len());
+    let mut upload_paths: Vec<PathBuf> = Vec::with_capacity(files_to_upload.len());
+    for file_info in &files_to_upload {
+        let content_length = std::fs::metadata(&file_info.upload_path)
+            .map_err(|e| format!("failed to stat {}: {}", file_info.upload_path.display(), e))?
             .len();
 
         let upload_id = Uuid::new_v4().to_string();
@@ -231,19 +264,22 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
         println!(
             "build upload request: id={} file={} size={} bytes",
             upload_id,
-            file_path.display(),
+            file_info.upload_path.display(),
             content_length
         );
 
-        let file_in_app_path = compute_in_app_path(file_path, &base_dir, &args.in_app_path);
+        let file_in_app_path =
+            compute_in_app_path(&file_info.original_path, &base_dir, &args.in_app_path);
         file_in_app_paths.push(file_in_app_path.clone());
+        upload_paths.push(file_info.upload_path.clone());
 
         let now_secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i32;
 
-        let file_name_str = file_path
+        let file_name_str = file_info
+            .original_path
             .file_name()
             .unwrap_or_default()
             .to_string_lossy()
@@ -302,12 +338,13 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
             }
 
             upload_to_presigned_urls(
-                &files,
+                &upload_paths,
                 &file_upload_ids,
                 &file_in_app_paths,
                 &id_to_resp,
                 &upload_request_id,
                 &user_id,
+                args.parallel_uploads,
             )
             .await?;
 
@@ -411,91 +448,148 @@ async fn upload_to_presigned_urls(
     id_to_resp: &HashMap<String, AssetUploadResponse>,
     upload_request_id: &str,
     user_id: &str,
+    max_concurrent: usize,
 ) -> Result<(), String> {
-    let http = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_err(|e| format!("failed to build http client: {}", e))?;
+    let http = Arc::new(
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .map_err(|e| format!("failed to build http client: {}", e))?,
+    );
+
+    let semaphore = Arc::new(Semaphore::new(max_concurrent));
+    let mut upload_tasks = Vec::new();
 
     for (i, file_path) in files.iter().enumerate() {
-        let content_length = std::fs::metadata(file_path)
-            .map_err(|e| format!("failed to stat {}: {}", file_path.display(), e))?
-            .len();
-
-        let upload_id = &file_upload_ids[i];
+        let file_path = file_path.clone();
+        let upload_id = file_upload_ids[i].clone();
+        let in_app_path = file_in_app_paths[i].clone();
         let upload_resp = id_to_resp
-            .get(upload_id)
-            .ok_or_else(|| format!("missing presigned url for upload_id {}", upload_id))?;
-        let upload_url = upload_resp.presigned_put_url.clone();
-        let host = url::Url::parse(&upload_url)
-            .ok()
-            .and_then(|u| u.host_str().map(|s| s.to_string()))
-            .unwrap_or_else(|| "<unknown-host>".to_string());
+            .get(&upload_id)
+            .ok_or_else(|| format!("missing presigned url for upload_id {}", upload_id))?
+            .clone();
+        let http_clone = Arc::clone(&http);
+        let semaphore_clone = Arc::clone(&semaphore);
+        let user_id = user_id.to_string();
+        let upload_request_id = upload_request_id.to_string();
+        let total_files = files.len();
+        let file_index = i + 1;
 
-        println!(
-            "uploading [{} / {}]: id={} asset={} file={} size={} bytes -> {}",
-            i + 1,
-            files.len(),
-            upload_id,
-            upload_resp.asset_id,
-            file_path.display(),
-            content_length,
-            host
-        );
-
-        let mut f = File::open(file_path)
-            .map_err(|e| format!("failed to open {}: {}", file_path.display(), e))?;
-        let mut buf = Vec::with_capacity(content_length as usize);
-        f.read_to_end(&mut buf)
-            .map_err(|e| format!("failed to read {}: {}", file_path.display(), e))?;
-
-        let content_type = mime_guess::from_path(file_path)
-            .first_or_text_plain()
-            .essence_str()
-            .to_string();
-        println!("  content-type: {}", content_type);
-
-        let started_at = std::time::Instant::now();
-        let put_res = http
-            .put(upload_url)
-            .header(reqwest::header::CONTENT_LENGTH, content_length)
-            .header(reqwest::header::CONTENT_TYPE, content_type)
-            .body(buf)
-            .send()
-            .await
-            .map_err(|e| format!("upload failed for {}: {}", file_path.display(), e))?;
-
-        if !put_res.status().is_success() {
-            let status = put_res.status();
-            let body = put_res
-                .text()
+        let task = tokio::spawn(async move {
+            let _permit = semaphore_clone
+                .acquire()
                 .await
-                .unwrap_or_else(|_| "<failed to read error body>".to_string());
-            return Err(format!(
-                "upload failed: {} -> status {} body: {}",
-                file_path.display(),
-                status,
-                body
-            ));
-        }
-        let elapsed = started_at.elapsed();
-        println!(
-            "  uploaded successfully: {} ({}.{:03}s)",
-            file_path.display(),
-            elapsed.as_secs(),
-            elapsed.subsec_millis()
-        );
+                .map_err(|e| format!("failed to acquire semaphore: {}", e))?;
 
-        let in_app_path = &file_in_app_paths[i];
-        if let Err(e) = uploads_tracking::record_upload(
-            user_id,
-            file_path,
-            in_app_path,
-            &upload_resp.asset_id,
-            upload_request_id,
-        ) {
-            eprintln!("Warning: Failed to record upload in tracking file: {}", e);
-        }
+            upload_single_file(
+                &file_path,
+                &upload_id,
+                &upload_resp,
+                &in_app_path,
+                &upload_request_id,
+                &user_id,
+                file_index,
+                total_files,
+                &http_clone,
+            )
+            .await
+        });
+
+        upload_tasks.push(task);
+    }
+
+    for task in upload_tasks {
+        task.await
+            .map_err(|e| format!("upload task panicked: {}", e))?
+            .map_err(|e| format!("upload failed: {}", e))?;
+    }
+
+    Ok(())
+}
+
+async fn upload_single_file(
+    file_path: &PathBuf,
+    upload_id: &str,
+    upload_resp: &AssetUploadResponse,
+    in_app_path: &str,
+    upload_request_id: &str,
+    user_id: &str,
+    file_index: usize,
+    total_files: usize,
+    http: &reqwest::Client,
+) -> Result<(), String> {
+    let content_length = std::fs::metadata(file_path)
+        .map_err(|e| format!("failed to stat {}: {}", file_path.display(), e))?
+        .len();
+
+    let upload_url = upload_resp.presigned_put_url.clone();
+    let host = url::Url::parse(&upload_url)
+        .ok()
+        .and_then(|u| u.host_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| "<unknown-host>".to_string());
+
+    println!(
+        "uploading [{} / {}]: id={} asset={} file={} size={} bytes -> {}",
+        file_index,
+        total_files,
+        upload_id,
+        upload_resp.asset_id,
+        file_path.display(),
+        content_length,
+        host
+    );
+
+    let mut f = File::open(file_path)
+        .map_err(|e| format!("failed to open {}: {}", file_path.display(), e))?;
+    let mut buf = Vec::with_capacity(content_length as usize);
+    f.read_to_end(&mut buf)
+        .map_err(|e| format!("failed to read {}: {}", file_path.display(), e))?;
+
+    let content_type = mime_guess::from_path(file_path)
+        .first_or_text_plain()
+        .essence_str()
+        .to_string();
+    println!("  content-type: {}", content_type);
+
+    let started_at = std::time::Instant::now();
+    let put_res = http
+        .put(upload_url)
+        .header(reqwest::header::CONTENT_LENGTH, content_length)
+        .header(reqwest::header::CONTENT_TYPE, &content_type)
+        .body(buf)
+        .send()
+        .await
+        .map_err(|e| format!("upload failed for {}: {}", file_path.display(), e))?;
+
+    if !put_res.status().is_success() {
+        let status = put_res.status();
+        let body = put_res
+            .text()
+            .await
+            .unwrap_or_else(|_| "<failed to read error body>".to_string());
+        return Err(format!(
+            "upload failed: {} -> status {} body: {}",
+            file_path.display(),
+            status,
+            body
+        ));
+    }
+    let elapsed = started_at.elapsed();
+    println!(
+        "  uploaded successfully: {} ({}.{:03}s)",
+        file_path.display(),
+        elapsed.as_secs(),
+        elapsed.subsec_millis()
+    );
+
+    if let Err(e) = uploads_tracking::record_upload(
+        user_id,
+        file_path,
+        in_app_path,
+        &upload_resp.asset_id,
+        upload_request_id,
+    ) {
+        eprintln!("Warning: Failed to record upload in tracking file: {}", e);
     }
 
     Ok(())
