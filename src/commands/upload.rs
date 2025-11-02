@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+use crate::auth;
+use crate::uploads_tracking;
 use crate::video::ffmpeg::ensure_ffmpeg_available;
 use crate::video::transcode::{create_rendition, RenditionDefinition};
 use crate::video::video_file_ext::has_video_ext;
@@ -32,6 +34,68 @@ pub struct UploadArgs {
 
     #[arg(long, env = "TELLERS_AUTH_BEARER")]
     pub auth_bearer: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    pub force_upload: bool,
+}
+
+fn compute_in_app_path(
+    file_path: &PathBuf,
+    base_dir: &PathBuf,
+    in_app_path_prefix: &Option<String>,
+) -> String {
+    let rel_path = if base_dir.is_dir() {
+        file_path
+            .strip_prefix(base_dir)
+            .unwrap_or(file_path)
+            .to_string_lossy()
+            .to_string()
+    } else {
+        file_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string()
+    };
+
+    match in_app_path_prefix {
+        Some(prefix) if !prefix.is_empty() => {
+            if base_dir.is_dir() {
+                format!("{}/{}", prefix.trim_end_matches('/'), rel_path)
+            } else {
+                prefix.clone()
+            }
+        }
+        _ => rel_path,
+    }
+}
+
+fn is_already_uploaded(
+    file_path: &PathBuf,
+    user_id: &str,
+    base_dir: &PathBuf,
+    in_app_path_prefix: &Option<String>,
+) -> bool {
+    let in_app_path = compute_in_app_path(file_path, base_dir, in_app_path_prefix);
+    match uploads_tracking::is_file_uploaded(user_id, &in_app_path) {
+        Ok(true) => {
+            println!(
+                "skipping {} (already uploaded as {})",
+                file_path.display(),
+                in_app_path
+            );
+            true
+        }
+        Ok(false) => false,
+        Err(e) => {
+            eprintln!(
+                "Warning: Failed to check upload history for {}: {}",
+                file_path.display(),
+                e
+            );
+            false
+        }
+    }
 }
 
 pub fn run(args: UploadArgs) -> Result<(), String> {
@@ -121,8 +185,41 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
     cfg.base_path = api_base;
     println!("api base: {}", cfg.base_path);
 
+    let bearer_env = args
+        .auth_bearer
+        .clone()
+        .or_else(|| std::env::var("TELLERS_AUTH_BEARER").ok())
+        .filter(|v| !v.is_empty());
+    let bearer_header_for_auth = bearer_env.as_deref().map(|b| {
+        if b.starts_with("Bearer ") {
+            b.to_string()
+        } else {
+            format!("Bearer {}", b)
+        }
+    });
+    let user_id = auth::get_user_id_from_bearer(bearer_header_for_auth.as_deref());
+
+    if !args.force_upload {
+        let original_count = files.len();
+        files.retain(|file_path| {
+            !is_already_uploaded(file_path, &user_id, &base_dir, &args.in_app_path)
+        });
+
+        let skipped = original_count - files.len();
+        if skipped > 0 {
+            println!("skipped {} already uploaded file(s)", skipped);
+        }
+
+        if files.is_empty() {
+            return Err("no files to upload (all files were already uploaded)".to_string());
+        }
+    }
+
+    let upload_request_id = Uuid::new_v4().to_string();
+
     let mut requests: Vec<AssetUploadRequest> = Vec::with_capacity(files.len());
     let mut file_upload_ids: Vec<String> = Vec::with_capacity(files.len());
+    let mut file_in_app_paths: Vec<String> = Vec::with_capacity(files.len());
     for file_path in &files {
         let content_length = std::fs::metadata(file_path)
             .map_err(|e| format!("failed to stat {}: {}", file_path.display(), e))?
@@ -138,30 +235,8 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
             content_length
         );
 
-        let rel_path = if base_dir.is_dir() {
-            file_path
-                .strip_prefix(&base_dir)
-                .unwrap_or(file_path)
-                .to_string_lossy()
-                .to_string()
-        } else {
-            file_path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string()
-        };
-
-        let file_in_app_path = match &args.in_app_path {
-            Some(prefix) if !prefix.is_empty() => {
-                if base_dir.is_dir() {
-                    format!("{}/{}", prefix.trim_end_matches('/'), rel_path)
-                } else {
-                    prefix.clone()
-                }
-            }
-            _ => rel_path.clone(),
-        };
+        let file_in_app_path = compute_in_app_path(file_path, &base_dir, &args.in_app_path);
+        file_in_app_paths.push(file_in_app_path.clone());
 
         let now_secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -198,11 +273,6 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
     tokio::runtime::Runtime::new()
         .map_err(|e| format!("failed to start runtime: {}", e))?
         .block_on(async move {
-            let bearer_env = args
-                .auth_bearer
-                .clone()
-                .or_else(|| std::env::var("TELLERS_AUTH_BEARER").ok())
-                .filter(|v| !v.is_empty());
             let bearer_header = bearer_env.as_deref().map(|b| {
                 if b.starts_with("Bearer ") {
                     b.to_string()
@@ -231,7 +301,15 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
                 }
             }
 
-            upload_to_presigned_urls(&files, &file_upload_ids, &id_to_resp).await?;
+            upload_to_presigned_urls(
+                &files,
+                &file_upload_ids,
+                &file_in_app_paths,
+                &id_to_resp,
+                &upload_request_id,
+                &user_id,
+            )
+            .await?;
 
             // Call preprocess for uploaded assets
             let preproc_req = ProcessAssetsRequest::new(
@@ -329,7 +407,10 @@ async fn request_presigned_urls(
 async fn upload_to_presigned_urls(
     files: &Vec<PathBuf>,
     file_upload_ids: &Vec<String>,
+    file_in_app_paths: &Vec<String>,
     id_to_resp: &HashMap<String, AssetUploadResponse>,
+    upload_request_id: &str,
+    user_id: &str,
 ) -> Result<(), String> {
     let http = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
@@ -404,6 +485,17 @@ async fn upload_to_presigned_urls(
             elapsed.as_secs(),
             elapsed.subsec_millis()
         );
+
+        let in_app_path = &file_in_app_paths[i];
+        if let Err(e) = uploads_tracking::record_upload(
+            user_id,
+            file_path,
+            in_app_path,
+            &upload_resp.asset_id,
+            upload_request_id,
+        ) {
+            eprintln!("Warning: Failed to record upload in tracking file: {}", e);
+        }
     }
 
     Ok(())

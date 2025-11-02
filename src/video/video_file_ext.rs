@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::path::PathBuf;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum VideoFileExt {
