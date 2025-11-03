@@ -1,9 +1,11 @@
+use clap::ValueEnum;
 use ffmpeg_sidecar::command::FfmpegCommand;
 use std::path::PathBuf;
 
 use crate::video::video_quality::VideoQuality;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, ValueEnum)]
+#[value(rename_all = "lowercase")]
 pub enum Preset {
     VeryFast,
     Fast,
