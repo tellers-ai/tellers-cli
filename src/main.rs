@@ -1,6 +1,7 @@
 mod auth;
 mod cli;
 mod commands;
+mod logger;
 mod media;
 mod output;
 mod tui;
@@ -9,6 +10,10 @@ mod uploads_tracking;
 use cli::Cli;
 
 fn main() {
+    if let Err(e) = logger::init() {
+        eprintln!("Warning: Failed to initialize logger: {}", e);
+    }
+    
     let cli = Cli::parse();
 
     match cli.command {

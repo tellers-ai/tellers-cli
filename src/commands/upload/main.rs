@@ -435,11 +435,7 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
             .map_err(|e| format!("failed to trigger preprocess: {}", e))?;
             let _ = progress_handle.add_success(format!("Preprocess tasks queued: {}", preproc_tasks.len()));
             
-            // Small delay to ensure last message is rendered
-            tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-            
-            render_handle.abort();
-            let _ = render_handle.await;
+            crate::tui::InlineProgress::stop_render_loop(render_handle).await;
             progress.finish()?;
             
             // Add empty line after progress display

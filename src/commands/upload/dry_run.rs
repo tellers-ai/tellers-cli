@@ -2,12 +2,12 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use crate::auth;
-use tokio::runtime::Runtime;
 use crate::media::ffmpeg::get_media_duration;
 use crate::media::media_file_type::{is_audio_file, is_image_file, is_metadata_file};
 use crate::media::transcode::{has_video_streams, is_mxf_file};
 use crate::media::video_file_ext::has_video_ext;
-use crate::tui::{InlineProgress, ProgressHandle};
+use crate::output;
+use crate::tui::InlineProgress;
 
 use super::utils::is_already_uploaded;
 
@@ -42,17 +42,17 @@ pub fn run_dry_run(
         return Err("no files to upload (all files were already uploaded)".to_string());
     }
 
-    println!("\n=== DRY RUN ===");
-    println!("Total files to check: {}", files_to_check.len());
+    output::info(format!(
+        "Dry run: analyzing {} file(s)",
+        files_to_check.len()
+    ));
 
     let mut progress = InlineProgress::new("Analyzing Files", files_to_check.len())?;
     let progress_handle = progress.clone_handle();
-    
-    let rt = tokio::runtime::Runtime::new()
-        .map_err(|e| format!("failed to start runtime: {}", e))?;
-    let render_handle = rt.block_on(async {
-        progress.start_render_loop(progress_handle.clone())
-    });
+
+    let rt =
+        tokio::runtime::Runtime::new().map_err(|e| format!("failed to start runtime: {}", e))?;
+    let render_handle = rt.block_on(async { progress.start_render_loop(progress_handle.clone()) });
 
     let mut image_count = 0;
     let mut audio_count = 0;
@@ -95,11 +95,10 @@ pub fn run_dry_run(
                                 ));
                             }
                             if !e.contains("file format not supported or corrupted") {
-                                eprintln!(
-                                    "Warning: Failed to get duration for {}: {}",
-                                    file_path.display(),
-                                    e
-                                );
+                                let _ = progress_handle.add_warning(format!(
+                                    "Failed to get duration for {}: {}",
+                                    file_name, e
+                                ));
                             }
                         }
                     }
@@ -121,11 +120,10 @@ pub fn run_dry_run(
                                 ));
                             }
                             if !e.contains("file format not supported or corrupted") {
-                                eprintln!(
-                                    "Warning: Failed to get duration for {}: {}",
-                                    file_path.display(),
-                                    e
-                                );
+                                let _ = progress_handle.add_warning(format!(
+                                    "Failed to get duration for {}: {}",
+                                    file_name, e
+                                ));
                             }
                         }
                     }
@@ -147,11 +145,10 @@ pub fn run_dry_run(
                                 ));
                             }
                             if !e.contains("file format not supported or corrupted") {
-                                eprintln!(
-                                    "Warning: Failed to get duration for {}: {}",
-                                    file_path.display(),
-                                    e
-                                );
+                                let _ = progress_handle.add_warning(format!(
+                                    "Failed to get duration for {}: {}",
+                                    file_name, e
+                                ));
                             }
                         }
                     }
@@ -166,11 +163,10 @@ pub fn run_dry_run(
                 Err(e) => {
                     audio_duration_failed += 1;
                     if !e.contains("file format not supported or corrupted") {
-                        eprintln!(
-                            "Warning: Failed to get duration for {}: {}",
-                            file_path.display(),
-                            e
-                        );
+                        let _ = progress_handle.add_warning(format!(
+                            "Failed to get duration for {}: {}",
+                            file_name, e
+                        ));
                     }
                 }
             }
@@ -181,72 +177,72 @@ pub fn run_dry_run(
                 Err(e) => {
                     video_duration_failed += 1;
                     if !e.contains("file format not supported or corrupted") {
-                        eprintln!(
-                            "Warning: Failed to get duration for {}: {}",
-                            file_path.display(),
-                            e
-                        );
+                        let _ = progress_handle.add_warning(format!(
+                            "Failed to get duration for {}: {}",
+                            file_name, e
+                        ));
                     }
                 }
             }
         }
-        
+
         let elapsed = task_start.elapsed();
         let _ = progress_handle.finish_task(i, true);
     }
 
     let _ = progress_handle.add_success("Analysis complete");
     rt.block_on(async {
-        render_handle.abort();
-        let _ = render_handle.await;
+        InlineProgress::stop_render_loop(render_handle).await;
     });
     progress.finish()?;
 
-    // Add empty line after progress display
     println!();
 
-    println!("\n=== SUMMARY ===");
-    println!("Total images: {}", image_count);
+    output::success("Analysis complete");
+    output::plain("");
+    output::info(format!("Images: {}", image_count));
+
     if audio_duration_failed > 0 {
-        println!(
-            "Total audio files: {}, Total duration: {:.2} hours (duration unavailable for {} file(s))",
+        output::info(format!(
+            "Audio: {} files, {:.2} hours (duration unavailable for {} file(s))",
             audio_count,
             audio_duration_secs / 3600.0,
             audio_duration_failed
-        );
+        ));
         if !audio_error_samples.is_empty() {
-            println!("  Sample errors:");
+            output::warning("Sample audio duration errors:");
             for err in &audio_error_samples {
-                println!("    - {}", err);
+                output::item(err);
             }
         }
     } else {
-        println!(
-            "Total audio files: {}, Total duration: {:.2} hours",
+        output::info(format!(
+            "Audio: {} files, {:.2} hours",
             audio_count,
             audio_duration_secs / 3600.0
-        );
+        ));
     }
+
     if video_duration_failed > 0 {
-        println!(
-            "Total video files: {}, Total duration: {:.2} hours (duration unavailable for {} file(s))",
+        output::info(format!(
+            "Video: {} files, {:.2} hours (duration unavailable for {} file(s))",
             video_count,
             video_duration_secs / 3600.0,
             video_duration_failed
-        );
+        ));
         if !video_error_samples.is_empty() {
-            println!("  Sample errors:");
+            output::warning("Sample video duration errors:");
             for err in &video_error_samples {
-                println!("    - {}", err);
+                output::item(err);
             }
         }
     } else {
-        println!(
-            "Total video files: {}, Total duration: {:.2} hours",
+        output::info(format!(
+            "Video: {} files, {:.2} hours",
             video_count,
             video_duration_secs / 3600.0
-        );
+        ));
     }
-    println!("=== END DRY RUN ===\n");
+
     Ok(())
 }

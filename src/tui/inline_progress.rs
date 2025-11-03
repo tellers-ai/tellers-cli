@@ -202,6 +202,17 @@ impl InlineProgress {
         })
     }
 
+    /// Stop the render loop and ensure final state is displayed.
+    /// This method handles the timing to ensure the last render completes before cleanup.
+    pub async fn stop_render_loop(render_handle: tokio::task::JoinHandle<Result<(), String>>) {
+        // Allow time for the render loop to process final state changes and display them.
+        // The render loop runs asynchronously and polls state periodically. Without this
+        // delay, we might abort it before it shows the final completed tasks and messages.
+        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+        render_handle.abort();
+        let _ = render_handle.await;
+    }
+
     fn render(&self) -> Result<(), String> {
         if let Some(ref mut terminal) = *self.terminal.borrow_mut() {
             let state = self.state.lock().unwrap();
@@ -371,7 +382,31 @@ pub fn draw_ui_internal(frame: &mut Frame, state: &ProgressState) {
     frame.render_widget(total_progress, top_area);
 
     let max_items = list_area.height as usize;
-    let tasks_to_show: Vec<_> = state.in_progress.iter().take(max_items).collect();
+
+    // Separate in-progress and completed tasks
+    let mut in_progress_tasks: Vec<_> = state
+        .in_progress
+        .iter()
+        .filter(|(_, task)| !task.completed)
+        .collect();
+    let mut completed_tasks: Vec<_> = state
+        .in_progress
+        .iter()
+        .filter(|(_, task)| task.completed)
+        .collect();
+
+    // Sort by task ID to show in order
+    in_progress_tasks.sort_by_key(|(id, _)| *id);
+    completed_tasks.sort_by_key(|(id, _)| *id);
+
+    // Show active tasks first, then recent completions if space allows
+    let mut tasks_to_show: Vec<_> = in_progress_tasks.into_iter().take(max_items).collect();
+    let remaining_space = max_items.saturating_sub(tasks_to_show.len());
+    if remaining_space > 0 {
+        // Show most recent completions (reverse order)
+        tasks_to_show.extend(completed_tasks.iter().rev().take(remaining_space));
+    }
+
     let items: Vec<ListItem> = tasks_to_show
         .iter()
         .map(|(_, task)| {
