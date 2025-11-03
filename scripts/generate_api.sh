@@ -5,15 +5,26 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 SPEC_PATH="${ROOT_DIR}/src/tellers_api/openapi.tellers_public_api.yaml"
 OUT_DIR="${ROOT_DIR}/generated/tellers_api_client"
 
-if ! command -v openapi-generator >/dev/null 2>&1; then
-  echo "openapi-generator not found. Install via:"
-  echo "  brew install openapi-generator"
+GENERATOR=""
+if command -v openapi-generator >/dev/null 2>&1; then
+  GENERATOR="openapi-generator"
+elif command -v openapi-generator-cli >/dev/null 2>&1; then
+  GENERATOR="openapi-generator-cli"
+elif [ -n "${OPENAPI_GENERATOR_CLI_JAR:-}" ] && [ -f "${OPENAPI_GENERATOR_CLI_JAR}" ]; then
+  GENERATOR="java -jar ${OPENAPI_GENERATOR_CLI_JAR}"
+elif [ -f "${ROOT_DIR}/openapi-generator-cli.jar" ]; then
+  GENERATOR="java -jar ${ROOT_DIR}/openapi-generator-cli.jar"
+else
+  echo "OpenAPI Generator not found. Install one of the following:"
+  echo "  - brew install openapi-generator"
+  echo "  - npm i -g @openapitools/openapi-generator-cli"
+  echo "  - download the JAR and set OPENAPI_GENERATOR_CLI_JAR=/path/to/openapi-generator-cli.jar"
   exit 1
 fi
 
 mkdir -p "${OUT_DIR}"
 
-openapi-generator generate \
+${GENERATOR} generate \
   -i "${SPEC_PATH}" \
   -g rust \
   -o "${OUT_DIR}" \
@@ -33,6 +44,4 @@ if [ -f "${LIB_RS}" ]; then
   mv "${TMP_LIB}" "${LIB_RS}"
   echo "Patched ${LIB_RS} with lint allowances."
 fi
-
-
 
