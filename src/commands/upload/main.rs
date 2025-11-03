@@ -9,42 +9,14 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::auth;
-use crate::uploads_tracking;
-use crate::video::ffmpeg::{ensure_ffmpeg_available, get_media_duration};
-use crate::video::transcode::{
+use crate::media::ffmpeg::ensure_ffmpeg_available;
+use crate::media::transcode::{
     convert_to_mp3, create_rendition, has_video_streams, is_mxf_file, Preset, RenditionDefinition,
 };
-use crate::video::video_file_ext::has_video_ext;
-use crate::video::video_quality::parse_quality;
-use crate::video::video_quality::VideoQuality;
-
-fn is_image_file(path: &PathBuf) -> bool {
-    let mime = mime_guess::from_path(path).first_or_octet_stream();
-    mime.type_() == "image"
-}
-
-fn is_audio_file(path: &PathBuf) -> bool {
-    let mime = mime_guess::from_path(path).first_or_octet_stream();
-    if mime.type_() == "audio" {
-        return true;
-    }
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    matches!(
-        ext.as_str(),
-        "mp3" | "wav" | "flac" | "aac" | "ogg" | "m4a" | "wma"
-    )
-}
-
-fn is_metadata_file(path: &PathBuf) -> bool {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .map(|name| name.starts_with("._"))
-        .unwrap_or(false)
-}
+use crate::media::video_file_ext::has_video_ext;
+use crate::media::video_quality::parse_quality;
+use crate::media::video_quality::VideoQuality;
+use crate::uploads_tracking;
 
 use tellers_api_client::apis::auth_required_api as api;
 use tellers_api_client::apis::configuration::Configuration;
@@ -84,64 +56,6 @@ pub struct UploadArgs {
     pub dry_run: bool,
 }
 
-fn compute_in_app_path(
-    file_path: &PathBuf,
-    base_dir: &PathBuf,
-    in_app_path_prefix: &Option<String>,
-) -> String {
-    let rel_path = if base_dir.is_dir() {
-        file_path
-            .strip_prefix(base_dir)
-            .unwrap_or(file_path)
-            .to_string_lossy()
-            .to_string()
-    } else {
-        file_path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string()
-    };
-
-    match in_app_path_prefix {
-        Some(prefix) if !prefix.is_empty() => {
-            if base_dir.is_dir() {
-                format!("{}/{}", prefix.trim_end_matches('/'), rel_path)
-            } else {
-                prefix.clone()
-            }
-        }
-        _ => rel_path,
-    }
-}
-
-fn is_already_uploaded(
-    file_path: &PathBuf,
-    user_id: &str,
-    base_dir: &PathBuf,
-    in_app_path_prefix: &Option<String>,
-) -> bool {
-    let in_app_path = compute_in_app_path(file_path, base_dir, in_app_path_prefix);
-    match uploads_tracking::is_file_uploaded(user_id, &in_app_path) {
-        Ok(true) => {
-            println!(
-                "skipping {} (already uploaded as {})",
-                file_path.display(),
-                in_app_path
-            );
-            true
-        }
-        Ok(false) => false,
-        Err(e) => {
-            eprintln!(
-                "Warning: Failed to check upload history for {}: {}",
-                file_path.display(),
-                e
-            );
-            false
-        }
-    }
-}
 
 struct FileToUpload {
     upload_path: PathBuf,
@@ -214,209 +128,13 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
     }
 
     if args.dry_run {
-        let bearer_env = args
-            .auth_bearer
-            .clone()
-            .or_else(|| std::env::var("TELLERS_AUTH_BEARER").ok())
-            .filter(|v| !v.is_empty());
-        let bearer_header_for_auth = bearer_env.as_deref().map(|b| {
-            if b.starts_with("Bearer ") {
-                b.to_string()
-            } else {
-                format!("Bearer {}", b)
-            }
-        });
-        let user_id = auth::get_user_id_from_bearer(bearer_header_for_auth.as_deref());
-
-        let mut files_to_check: Vec<PathBuf> = original_files.clone();
-        files_to_check.retain(|file_path| !is_metadata_file(file_path));
-        if !args.force_upload {
-            files_to_check.retain(|file_path| {
-                !is_already_uploaded(file_path, &user_id, &base_dir, &args.in_app_path)
-            });
-        }
-
-        if files_to_check.is_empty() {
-            return Err("no files to upload (all files were already uploaded)".to_string());
-        }
-
-        println!("\n=== DRY RUN ===");
-        println!("Total files to upload: {}", files_to_check.len());
-
-        let mut image_count = 0;
-        let mut audio_count = 0;
-        let mut audio_duration_secs = 0.0;
-        let mut audio_duration_failed = 0;
-        let mut audio_error_samples: Vec<String> = Vec::new();
-        let mut video_count = 0;
-        let mut video_duration_secs = 0.0;
-        let mut video_duration_failed = 0;
-        let mut video_error_samples: Vec<String> = Vec::new();
-
-        for file_path in &files_to_check {
-            if is_metadata_file(file_path) {
-                continue;
-            }
-
-            if is_mxf_file(file_path) {
-                match has_video_streams(file_path) {
-                    Ok(true) => {
-                        video_count += 1;
-                        match get_media_duration(file_path) {
-                            Ok(duration) => video_duration_secs += duration,
-                            Err(e) => {
-                                video_duration_failed += 1;
-                                if video_error_samples.len() < 3 {
-                                    video_error_samples.push(format!(
-                                        "{}: {}",
-                                        file_path
-                                            .file_name()
-                                            .and_then(|n| n.to_str())
-                                            .unwrap_or("<unknown>"),
-                                        e
-                                    ));
-                                }
-                                if !e.contains("file format not supported or corrupted") {
-                                    eprintln!(
-                                        "Warning: Failed to get duration for {}: {}",
-                                        file_path.display(),
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    Ok(false) => {
-                        audio_count += 1;
-                        match get_media_duration(file_path) {
-                            Ok(duration) => audio_duration_secs += duration,
-                            Err(e) => {
-                                audio_duration_failed += 1;
-                                if audio_error_samples.len() < 3 {
-                                    audio_error_samples.push(format!(
-                                        "{}: {}",
-                                        file_path
-                                            .file_name()
-                                            .and_then(|n| n.to_str())
-                                            .unwrap_or("<unknown>"),
-                                        e
-                                    ));
-                                }
-                                if !e.contains("file format not supported or corrupted") {
-                                    eprintln!(
-                                        "Warning: Failed to get duration for {}: {}",
-                                        file_path.display(),
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        audio_count += 1;
-                        match get_media_duration(file_path) {
-                            Ok(duration) => audio_duration_secs += duration,
-                            Err(e) => {
-                                audio_duration_failed += 1;
-                                if audio_error_samples.len() < 3 {
-                                    audio_error_samples.push(format!(
-                                        "{}: {}",
-                                        file_path
-                                            .file_name()
-                                            .and_then(|n| n.to_str())
-                                            .unwrap_or("<unknown>"),
-                                        e
-                                    ));
-                                }
-                                if !e.contains("file format not supported or corrupted") {
-                                    eprintln!(
-                                        "Warning: Failed to get duration for {}: {}",
-                                        file_path.display(),
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            } else if is_image_file(file_path) {
-                image_count += 1;
-            } else if is_audio_file(file_path) {
-                audio_count += 1;
-                match get_media_duration(file_path) {
-                    Ok(duration) => audio_duration_secs += duration,
-                    Err(e) => {
-                        audio_duration_failed += 1;
-                        if !e.contains("file format not supported or corrupted") {
-                            eprintln!(
-                                "Warning: Failed to get duration for {}: {}",
-                                file_path.display(),
-                                e
-                            );
-                        }
-                    }
-                }
-            } else if has_video_ext(file_path) {
-                video_count += 1;
-                match get_media_duration(file_path) {
-                    Ok(duration) => video_duration_secs += duration,
-                    Err(e) => {
-                        video_duration_failed += 1;
-                        if !e.contains("file format not supported or corrupted") {
-                            eprintln!(
-                                "Warning: Failed to get duration for {}: {}",
-                                file_path.display(),
-                                e
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        println!("Total images: {}", image_count);
-        if audio_duration_failed > 0 {
-            println!(
-                "Total audio files: {}, Total duration: {:.2} hours (duration unavailable for {} file(s))",
-                audio_count,
-                audio_duration_secs / 3600.0,
-                audio_duration_failed
-            );
-            if !audio_error_samples.is_empty() {
-                println!("  Sample errors:");
-                for err in &audio_error_samples {
-                    println!("    - {}", err);
-                }
-            }
-        } else {
-            println!(
-                "Total audio files: {}, Total duration: {:.2} hours",
-                audio_count,
-                audio_duration_secs / 3600.0
-            );
-        }
-        if video_duration_failed > 0 {
-            println!(
-                "Total video files: {}, Total duration: {:.2} hours (duration unavailable for {} file(s))",
-                video_count,
-                video_duration_secs / 3600.0,
-                video_duration_failed
-            );
-            if !video_error_samples.is_empty() {
-                println!("  Sample errors:");
-                for err in &video_error_samples {
-                    println!("    - {}", err);
-                }
-            }
-        } else {
-            println!(
-                "Total video files: {}, Total duration: {:.2} hours",
-                video_count,
-                video_duration_secs / 3600.0
-            );
-        }
-        println!("=== END DRY RUN ===\n");
-        return Ok(());
+        return super::dry_run::run_dry_run(
+            &original_files,
+            &base_dir,
+            &args.in_app_path,
+            &args.auth_bearer,
+            args.force_upload,
+        );
     }
 
     let mut files_to_upload: Vec<FileToUpload> = Vec::new();
@@ -574,7 +292,7 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
     if !args.force_upload {
         let original_count = files_to_upload.len();
         files_to_upload.retain(|file_info| {
-            !is_already_uploaded(
+            !super::utils::is_already_uploaded(
                 &file_info.original_path,
                 &user_id,
                 &base_dir,
@@ -614,7 +332,7 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
         );
 
         let file_in_app_path =
-            compute_in_app_path(&file_info.original_path, &base_dir, &args.in_app_path);
+            super::utils::compute_in_app_path(&file_info.original_path, &base_dir, &args.in_app_path);
         file_in_app_paths.push(file_in_app_path.clone());
         upload_paths.push(file_info.upload_path.clone());
 

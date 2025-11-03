@@ -2,7 +2,7 @@ use clap::ValueEnum;
 use ffmpeg_sidecar::command::FfmpegCommand;
 use std::path::PathBuf;
 
-use crate::video::video_quality::VideoQuality;
+use crate::media::video_quality::VideoQuality;
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 #[value(rename_all = "lowercase")]
@@ -239,3 +239,5 @@ pub fn has_video_streams(path: &PathBuf) -> Result<bool, String> {
     let output_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
     Ok(output_str == "video")
 }
+
+

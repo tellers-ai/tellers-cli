@@ -71,3 +71,5 @@ fn try_alternative_duration_method(path: &PathBuf) -> Result<f64, String> {
         .parse::<f64>()
         .map_err(|e| format!("failed to parse duration '{}': {}", duration_str, e))
 }
+
+
