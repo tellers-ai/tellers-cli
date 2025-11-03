@@ -11,7 +11,7 @@ use walkdir::WalkDir;
 use crate::auth;
 use crate::uploads_tracking;
 use crate::video::ffmpeg::ensure_ffmpeg_available;
-use crate::video::transcode::{create_rendition, RenditionDefinition};
+use crate::video::transcode::{create_rendition, Preset, RenditionDefinition};
 use crate::video::video_file_ext::has_video_ext;
 use crate::video::video_quality::parse_quality;
 use crate::video::video_quality::VideoQuality;
@@ -28,6 +28,9 @@ pub struct UploadArgs {
 
     #[arg(long, num_args = 1.., value_parser = parse_quality, default_values_t = vec![VideoQuality::P1080])]
     pub qualities: Vec<VideoQuality>,
+
+    #[arg(long)]
+    pub preset: Option<Preset>,
 
     pub path: String,
 
@@ -151,7 +154,7 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
                     original_file,
                     RenditionDefinition {
                         quality: Some(args.qualities[0]),
-                        preset: None,
+                        preset: args.preset,
                         crf: None,
                         audio_bitrate: None,
                     },
