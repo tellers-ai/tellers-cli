@@ -10,11 +10,42 @@ use walkdir::WalkDir;
 
 use crate::auth;
 use crate::uploads_tracking;
-use crate::video::ffmpeg::ensure_ffmpeg_available;
-use crate::video::transcode::{create_rendition, Preset, RenditionDefinition};
+use crate::video::ffmpeg::{ensure_ffmpeg_available, get_media_duration};
+use crate::video::transcode::{
+    convert_to_mp3, create_rendition, has_video_streams, is_mxf_file, Preset, RenditionDefinition,
+};
 use crate::video::video_file_ext::has_video_ext;
 use crate::video::video_quality::parse_quality;
 use crate::video::video_quality::VideoQuality;
+
+fn is_image_file(path: &PathBuf) -> bool {
+    let mime = mime_guess::from_path(path).first_or_octet_stream();
+    mime.type_() == "image"
+}
+
+fn is_audio_file(path: &PathBuf) -> bool {
+    let mime = mime_guess::from_path(path).first_or_octet_stream();
+    if mime.type_() == "audio" {
+        return true;
+    }
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    matches!(
+        ext.as_str(),
+        "mp3" | "wav" | "flac" | "aac" | "ogg" | "m4a" | "wma"
+    )
+}
+
+fn is_metadata_file(path: &PathBuf) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .map(|name| name.starts_with("._"))
+        .unwrap_or(false)
+}
+
 use tellers_api_client::apis::auth_required_api as api;
 use tellers_api_client::apis::configuration::Configuration;
 use tellers_api_client::models::{
@@ -48,6 +79,9 @@ pub struct UploadArgs {
 
     #[arg(long, num_args = 1..)]
     pub ext: Vec<String>,
+
+    #[arg(long, default_value_t = false)]
+    pub dry_run: bool,
 }
 
 fn compute_in_app_path(
@@ -179,6 +213,212 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
         }
     }
 
+    if args.dry_run {
+        let bearer_env = args
+            .auth_bearer
+            .clone()
+            .or_else(|| std::env::var("TELLERS_AUTH_BEARER").ok())
+            .filter(|v| !v.is_empty());
+        let bearer_header_for_auth = bearer_env.as_deref().map(|b| {
+            if b.starts_with("Bearer ") {
+                b.to_string()
+            } else {
+                format!("Bearer {}", b)
+            }
+        });
+        let user_id = auth::get_user_id_from_bearer(bearer_header_for_auth.as_deref());
+
+        let mut files_to_check: Vec<PathBuf> = original_files.clone();
+        files_to_check.retain(|file_path| !is_metadata_file(file_path));
+        if !args.force_upload {
+            files_to_check.retain(|file_path| {
+                !is_already_uploaded(file_path, &user_id, &base_dir, &args.in_app_path)
+            });
+        }
+
+        if files_to_check.is_empty() {
+            return Err("no files to upload (all files were already uploaded)".to_string());
+        }
+
+        println!("\n=== DRY RUN ===");
+        println!("Total files to upload: {}", files_to_check.len());
+
+        let mut image_count = 0;
+        let mut audio_count = 0;
+        let mut audio_duration_secs = 0.0;
+        let mut audio_duration_failed = 0;
+        let mut audio_error_samples: Vec<String> = Vec::new();
+        let mut video_count = 0;
+        let mut video_duration_secs = 0.0;
+        let mut video_duration_failed = 0;
+        let mut video_error_samples: Vec<String> = Vec::new();
+
+        for file_path in &files_to_check {
+            if is_metadata_file(file_path) {
+                continue;
+            }
+
+            if is_mxf_file(file_path) {
+                match has_video_streams(file_path) {
+                    Ok(true) => {
+                        video_count += 1;
+                        match get_media_duration(file_path) {
+                            Ok(duration) => video_duration_secs += duration,
+                            Err(e) => {
+                                video_duration_failed += 1;
+                                if video_error_samples.len() < 3 {
+                                    video_error_samples.push(format!(
+                                        "{}: {}",
+                                        file_path
+                                            .file_name()
+                                            .and_then(|n| n.to_str())
+                                            .unwrap_or("<unknown>"),
+                                        e
+                                    ));
+                                }
+                                if !e.contains("file format not supported or corrupted") {
+                                    eprintln!(
+                                        "Warning: Failed to get duration for {}: {}",
+                                        file_path.display(),
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    Ok(false) => {
+                        audio_count += 1;
+                        match get_media_duration(file_path) {
+                            Ok(duration) => audio_duration_secs += duration,
+                            Err(e) => {
+                                audio_duration_failed += 1;
+                                if audio_error_samples.len() < 3 {
+                                    audio_error_samples.push(format!(
+                                        "{}: {}",
+                                        file_path
+                                            .file_name()
+                                            .and_then(|n| n.to_str())
+                                            .unwrap_or("<unknown>"),
+                                        e
+                                    ));
+                                }
+                                if !e.contains("file format not supported or corrupted") {
+                                    eprintln!(
+                                        "Warning: Failed to get duration for {}: {}",
+                                        file_path.display(),
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        audio_count += 1;
+                        match get_media_duration(file_path) {
+                            Ok(duration) => audio_duration_secs += duration,
+                            Err(e) => {
+                                audio_duration_failed += 1;
+                                if audio_error_samples.len() < 3 {
+                                    audio_error_samples.push(format!(
+                                        "{}: {}",
+                                        file_path
+                                            .file_name()
+                                            .and_then(|n| n.to_str())
+                                            .unwrap_or("<unknown>"),
+                                        e
+                                    ));
+                                }
+                                if !e.contains("file format not supported or corrupted") {
+                                    eprintln!(
+                                        "Warning: Failed to get duration for {}: {}",
+                                        file_path.display(),
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if is_image_file(file_path) {
+                image_count += 1;
+            } else if is_audio_file(file_path) {
+                audio_count += 1;
+                match get_media_duration(file_path) {
+                    Ok(duration) => audio_duration_secs += duration,
+                    Err(e) => {
+                        audio_duration_failed += 1;
+                        if !e.contains("file format not supported or corrupted") {
+                            eprintln!(
+                                "Warning: Failed to get duration for {}: {}",
+                                file_path.display(),
+                                e
+                            );
+                        }
+                    }
+                }
+            } else if has_video_ext(file_path) {
+                video_count += 1;
+                match get_media_duration(file_path) {
+                    Ok(duration) => video_duration_secs += duration,
+                    Err(e) => {
+                        video_duration_failed += 1;
+                        if !e.contains("file format not supported or corrupted") {
+                            eprintln!(
+                                "Warning: Failed to get duration for {}: {}",
+                                file_path.display(),
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("Total images: {}", image_count);
+        if audio_duration_failed > 0 {
+            println!(
+                "Total audio files: {}, Total duration: {:.2} hours (duration unavailable for {} file(s))",
+                audio_count,
+                audio_duration_secs / 3600.0,
+                audio_duration_failed
+            );
+            if !audio_error_samples.is_empty() {
+                println!("  Sample errors:");
+                for err in &audio_error_samples {
+                    println!("    - {}", err);
+                }
+            }
+        } else {
+            println!(
+                "Total audio files: {}, Total duration: {:.2} hours",
+                audio_count,
+                audio_duration_secs / 3600.0
+            );
+        }
+        if video_duration_failed > 0 {
+            println!(
+                "Total video files: {}, Total duration: {:.2} hours (duration unavailable for {} file(s))",
+                video_count,
+                video_duration_secs / 3600.0,
+                video_duration_failed
+            );
+            if !video_error_samples.is_empty() {
+                println!("  Sample errors:");
+                for err in &video_error_samples {
+                    println!("    - {}", err);
+                }
+            }
+        } else {
+            println!(
+                "Total video files: {}, Total duration: {:.2} hours",
+                video_count,
+                video_duration_secs / 3600.0
+            );
+        }
+        println!("=== END DRY RUN ===\n");
+        return Ok(());
+    }
+
     let mut files_to_upload: Vec<FileToUpload> = Vec::new();
     if args.local_encoding {
         ensure_ffmpeg_available()?;
@@ -192,7 +432,63 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
         );
 
         for original_file in &original_files {
-            if has_video_ext(original_file) {
+            if is_mxf_file(original_file) {
+                match has_video_streams(original_file) {
+                    Ok(true) => {
+                        if args.qualities.len() > 1 {
+                            return Err("Only supporting single quality for now".to_string());
+                        }
+                        println!(
+                            "  MXF file {} contains video, converting to MP4",
+                            original_file.display()
+                        );
+                        let encoded_file = create_rendition(
+                            original_file,
+                            RenditionDefinition {
+                                quality: Some(args.qualities[0]),
+                                preset: args.preset,
+                                crf: None,
+                                audio_bitrate: None,
+                            },
+                        )
+                        .map_err(|e| {
+                            format!(
+                                "failed to encode MXF rendition for {}: {}",
+                                original_file.display(),
+                                e
+                            )
+                        })?;
+                        files_to_upload.push(FileToUpload {
+                            upload_path: encoded_file,
+                            original_path: original_file.clone(),
+                        });
+                    }
+                    Ok(false) => {
+                        println!(
+                            "  MXF file {} is audio-only, converting to MP3",
+                            original_file.display()
+                        );
+                        let encoded_file = convert_to_mp3(original_file, None).map_err(|e| {
+                            format!(
+                                "failed to convert MXF to MP3 for {}: {}",
+                                original_file.display(),
+                                e
+                            )
+                        })?;
+                        files_to_upload.push(FileToUpload {
+                            upload_path: encoded_file,
+                            original_path: original_file.clone(),
+                        });
+                    }
+                    Err(e) => {
+                        return Err(format!(
+                            "failed to check video streams in MXF file {}: {}",
+                            original_file.display(),
+                            e
+                        ));
+                    }
+                }
+            } else if has_video_ext(original_file) {
                 if args.qualities.len() > 1 {
                     return Err("Only supporting single quality for now".to_string());
                 }

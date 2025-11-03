@@ -144,3 +144,98 @@ pub fn create_rendition(
 
     Ok(output)
 }
+
+fn compute_audio_output_path(input: &PathBuf, out_base: &PathBuf) -> PathBuf {
+    out_base.join(format!(
+        "{}.mp3",
+        input.file_stem().unwrap().to_string_lossy()
+    ))
+}
+
+pub fn convert_to_mp3(input: &PathBuf, audio_bitrate: Option<u32>) -> Result<PathBuf, String> {
+    let temp_base = get_temp_rendition_dir()?;
+    let output = compute_audio_output_path(input, &temp_base);
+
+    if let (Ok(in_md), Ok(out_md)) = (std::fs::metadata(input), std::fs::metadata(&output)) {
+        if let (Ok(in_time), Ok(out_time)) = (in_md.modified(), out_md.modified()) {
+            if out_time >= in_time {
+                println!(
+                    "  reusing existing MP3 conversion for {} at {}",
+                    input.display(),
+                    output.display()
+                );
+                return Ok(output);
+            }
+        }
+    }
+
+    let mut cmd = FfmpegCommand::new();
+    cmd.overwrite()
+        .input(input.to_string_lossy().to_string())
+        .codec_audio("libmp3lame");
+
+    if let Some(abr_kbps) = audio_bitrate {
+        cmd.args(["-b:a", &format!("{}k", abr_kbps)]);
+    } else {
+        cmd.args(["-b:a", "192k"]);
+    }
+
+    if std::env::var("TELLERS_DEBUG_FFMPEG").ok().as_deref() == Some("1") {
+        cmd.print_command();
+    }
+
+    cmd.output(output.to_string_lossy().to_string());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to start ffmpeg: {}", e))?;
+    let status = child
+        .wait()
+        .map_err(|e| format!("failed to wait for ffmpeg: {}", e))?;
+    if !status.success() {
+        return Err(format!(
+            "ffmpeg failed converting to MP3: {} -> {}",
+            input.display(),
+            output.display()
+        ));
+    }
+
+    Ok(output)
+}
+
+pub fn is_mxf_file(path: &PathBuf) -> bool {
+    path.extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        == "mxf"
+}
+
+pub fn has_video_streams(path: &PathBuf) -> Result<bool, String> {
+    use std::process::Command;
+
+    let output = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            &path.to_string_lossy(),
+        ])
+        .output()
+        .map_err(|e| format!("failed to run ffprobe: {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "ffprobe failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let output_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(output_str == "video")
+}
