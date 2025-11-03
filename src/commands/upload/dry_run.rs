@@ -1,10 +1,13 @@
 use std::path::PathBuf;
+use std::time::Instant;
 
 use crate::auth;
+use tokio::runtime::Runtime;
 use crate::media::ffmpeg::get_media_duration;
 use crate::media::media_file_type::{is_audio_file, is_image_file, is_metadata_file};
 use crate::media::transcode::{has_video_streams, is_mxf_file};
 use crate::media::video_file_ext::has_video_ext;
+use crate::tui::{InlineProgress, ProgressHandle};
 
 use super::utils::is_already_uploaded;
 
@@ -40,7 +43,16 @@ pub fn run_dry_run(
     }
 
     println!("\n=== DRY RUN ===");
-    println!("Total files to upload: {}", files_to_check.len());
+    println!("Total files to check: {}", files_to_check.len());
+
+    let mut progress = InlineProgress::new("Analyzing Files", files_to_check.len())?;
+    let progress_handle = progress.clone_handle();
+    
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| format!("failed to start runtime: {}", e))?;
+    let render_handle = rt.block_on(async {
+        progress.start_render_loop(progress_handle.clone())
+    });
 
     let mut image_count = 0;
     let mut audio_count = 0;
@@ -52,7 +64,14 @@ pub fn run_dry_run(
     let mut video_duration_failed = 0;
     let mut video_error_samples: Vec<String> = Vec::new();
 
-    for file_path in &files_to_check {
+    for (i, file_path) in files_to_check.iter().enumerate() {
+        let file_name = file_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let _ = progress_handle.start_task(i, file_name.clone(), 0);
+        let task_start = Instant::now();
         if is_metadata_file(file_path) {
             continue;
         }
@@ -171,8 +190,22 @@ pub fn run_dry_run(
                 }
             }
         }
+        
+        let elapsed = task_start.elapsed();
+        let _ = progress_handle.finish_task(i, true);
     }
 
+    let _ = progress_handle.add_success("Analysis complete");
+    rt.block_on(async {
+        render_handle.abort();
+        let _ = render_handle.await;
+    });
+    progress.finish()?;
+
+    // Add empty line after progress display
+    println!();
+
+    println!("\n=== SUMMARY ===");
     println!("Total images: {}", image_count);
     if audio_duration_failed > 0 {
         println!(
@@ -217,5 +250,3 @@ pub fn run_dry_run(
     println!("=== END DRY RUN ===\n");
     Ok(())
 }
-
-

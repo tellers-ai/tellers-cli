@@ -2,6 +2,8 @@ mod auth;
 mod cli;
 mod commands;
 mod media;
+mod output;
+mod tui;
 mod uploads_tracking;
 
 use cli::Cli;

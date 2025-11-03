@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::output;
 use crate::uploads_tracking;
 
 pub fn compute_in_app_path(
@@ -42,20 +43,20 @@ pub fn is_already_uploaded(
     let in_app_path = compute_in_app_path(file_path, base_dir, in_app_path_prefix);
     match uploads_tracking::is_file_uploaded(user_id, &in_app_path) {
         Ok(true) => {
-            println!(
-                "skipping {} (already uploaded as {})",
+            output::info(format!(
+                "Skipping {} (already uploaded as {})",
                 file_path.display(),
                 in_app_path
-            );
+            ));
             true
         }
         Ok(false) => false,
         Err(e) => {
-            eprintln!(
-                "Warning: Failed to check upload history for {}: {}",
+            output::warning(format!(
+                "Failed to check upload history for {}: {}",
                 file_path.display(),
                 e
-            );
+            ));
             false
         }
     }
