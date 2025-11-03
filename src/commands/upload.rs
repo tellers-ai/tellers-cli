@@ -45,6 +45,9 @@ pub struct UploadArgs {
 
     #[arg(long, default_value_t = 4)]
     pub parallel_uploads: usize,
+
+    #[arg(long, num_args = 1..)]
+    pub ext: Vec<String>,
 }
 
 fn compute_in_app_path(
@@ -111,6 +114,22 @@ struct FileToUpload {
     original_path: PathBuf,
 }
 
+fn has_extension(file_path: &PathBuf, extensions: &[String]) -> bool {
+    if extensions.is_empty() {
+        return true;
+    }
+
+    let file_ext = file_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    extensions
+        .iter()
+        .any(|ext| ext.trim_start_matches('.').to_ascii_lowercase() == file_ext)
+}
+
 pub fn run(args: UploadArgs) -> Result<(), String> {
     let base_dir = PathBuf::from(&args.path);
     if !base_dir.exists() {
@@ -131,6 +150,33 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
 
     if original_files.is_empty() {
         return Err("no files found to upload".to_string());
+    }
+
+    if !args.ext.is_empty() {
+        let before_count = original_files.len();
+        original_files.retain(|file_path| has_extension(file_path, &args.ext));
+        let filtered_count = original_files.len();
+        if filtered_count < before_count {
+            println!(
+                "filtered to {} file(s) matching extensions: {}",
+                filtered_count,
+                args.ext
+                    .iter()
+                    .map(|e| e.trim_start_matches('.'))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        if original_files.is_empty() {
+            return Err(format!(
+                "no files found with extensions: {}",
+                args.ext
+                    .iter()
+                    .map(|e| e.trim_start_matches('.'))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
     }
 
     let mut files_to_upload: Vec<FileToUpload> = Vec::new();
