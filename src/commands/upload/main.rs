@@ -9,12 +9,15 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::auth;
+use crate::media::ffmpeg::ensure_ffmpeg_available;
+use crate::media::transcode::{
+    convert_to_mp3, create_rendition, has_video_streams, is_mxf_file, Preset, RenditionDefinition,
+};
+use crate::media::video_file_ext::has_video_ext;
+use crate::media::video_quality::parse_quality;
+use crate::media::video_quality::VideoQuality;
 use crate::uploads_tracking;
-use crate::video::ffmpeg::ensure_ffmpeg_available;
-use crate::video::transcode::{create_rendition, Preset, RenditionDefinition};
-use crate::video::video_file_ext::has_video_ext;
-use crate::video::video_quality::parse_quality;
-use crate::video::video_quality::VideoQuality;
+
 use tellers_api_client::apis::auth_required_api as api;
 use tellers_api_client::apis::configuration::Configuration;
 use tellers_api_client::models::{
@@ -48,66 +51,11 @@ pub struct UploadArgs {
 
     #[arg(long, num_args = 1..)]
     pub ext: Vec<String>,
+
+    #[arg(long, default_value_t = false)]
+    pub dry_run: bool,
 }
 
-fn compute_in_app_path(
-    file_path: &PathBuf,
-    base_dir: &PathBuf,
-    in_app_path_prefix: &Option<String>,
-) -> String {
-    let rel_path = if base_dir.is_dir() {
-        file_path
-            .strip_prefix(base_dir)
-            .unwrap_or(file_path)
-            .to_string_lossy()
-            .to_string()
-    } else {
-        file_path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string()
-    };
-
-    match in_app_path_prefix {
-        Some(prefix) if !prefix.is_empty() => {
-            if base_dir.is_dir() {
-                format!("{}/{}", prefix.trim_end_matches('/'), rel_path)
-            } else {
-                prefix.clone()
-            }
-        }
-        _ => rel_path,
-    }
-}
-
-fn is_already_uploaded(
-    file_path: &PathBuf,
-    user_id: &str,
-    base_dir: &PathBuf,
-    in_app_path_prefix: &Option<String>,
-) -> bool {
-    let in_app_path = compute_in_app_path(file_path, base_dir, in_app_path_prefix);
-    match uploads_tracking::is_file_uploaded(user_id, &in_app_path) {
-        Ok(true) => {
-            println!(
-                "skipping {} (already uploaded as {})",
-                file_path.display(),
-                in_app_path
-            );
-            true
-        }
-        Ok(false) => false,
-        Err(e) => {
-            eprintln!(
-                "Warning: Failed to check upload history for {}: {}",
-                file_path.display(),
-                e
-            );
-            false
-        }
-    }
-}
 
 struct FileToUpload {
     upload_path: PathBuf,
@@ -179,6 +127,16 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
         }
     }
 
+    if args.dry_run {
+        return super::dry_run::run_dry_run(
+            &original_files,
+            &base_dir,
+            &args.in_app_path,
+            &args.auth_bearer,
+            args.force_upload,
+        );
+    }
+
     let mut files_to_upload: Vec<FileToUpload> = Vec::new();
     if args.local_encoding {
         ensure_ffmpeg_available()?;
@@ -192,7 +150,63 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
         );
 
         for original_file in &original_files {
-            if has_video_ext(original_file) {
+            if is_mxf_file(original_file) {
+                match has_video_streams(original_file) {
+                    Ok(true) => {
+                        if args.qualities.len() > 1 {
+                            return Err("Only supporting single quality for now".to_string());
+                        }
+                        println!(
+                            "  MXF file {} contains video, converting to MP4",
+                            original_file.display()
+                        );
+                        let encoded_file = create_rendition(
+                            original_file,
+                            RenditionDefinition {
+                                quality: Some(args.qualities[0]),
+                                preset: args.preset,
+                                crf: None,
+                                audio_bitrate: None,
+                            },
+                        )
+                        .map_err(|e| {
+                            format!(
+                                "failed to encode MXF rendition for {}: {}",
+                                original_file.display(),
+                                e
+                            )
+                        })?;
+                        files_to_upload.push(FileToUpload {
+                            upload_path: encoded_file,
+                            original_path: original_file.clone(),
+                        });
+                    }
+                    Ok(false) => {
+                        println!(
+                            "  MXF file {} is audio-only, converting to MP3",
+                            original_file.display()
+                        );
+                        let encoded_file = convert_to_mp3(original_file, None).map_err(|e| {
+                            format!(
+                                "failed to convert MXF to MP3 for {}: {}",
+                                original_file.display(),
+                                e
+                            )
+                        })?;
+                        files_to_upload.push(FileToUpload {
+                            upload_path: encoded_file,
+                            original_path: original_file.clone(),
+                        });
+                    }
+                    Err(e) => {
+                        return Err(format!(
+                            "failed to check video streams in MXF file {}: {}",
+                            original_file.display(),
+                            e
+                        ));
+                    }
+                }
+            } else if has_video_ext(original_file) {
                 if args.qualities.len() > 1 {
                     return Err("Only supporting single quality for now".to_string());
                 }
@@ -278,7 +292,7 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
     if !args.force_upload {
         let original_count = files_to_upload.len();
         files_to_upload.retain(|file_info| {
-            !is_already_uploaded(
+            !super::utils::is_already_uploaded(
                 &file_info.original_path,
                 &user_id,
                 &base_dir,
@@ -318,7 +332,7 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
         );
 
         let file_in_app_path =
-            compute_in_app_path(&file_info.original_path, &base_dir, &args.in_app_path);
+            super::utils::compute_in_app_path(&file_info.original_path, &base_dir, &args.in_app_path);
         file_in_app_paths.push(file_in_app_path.clone());
         upload_paths.push(file_info.upload_path.clone());
 
