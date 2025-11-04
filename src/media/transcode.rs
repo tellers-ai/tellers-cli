@@ -103,7 +103,7 @@ pub fn create_rendition(
 
     let mut cmd = FfmpegCommand::new();
     cmd.overwrite()
-        .input(&input.to_string_lossy())
+        .input(input.to_string_lossy())
         .codec_video("libx264");
 
     if let Some(q) = definition.quality {
@@ -126,7 +126,7 @@ pub fn create_rendition(
         cmd.print_command();
     }
 
-    cmd.output(&output.to_string_lossy());
+    cmd.output(output.to_string_lossy());
 
     let mut child = cmd
         .spawn()
@@ -171,7 +171,7 @@ pub fn convert_to_mp3(input: &PathBuf, audio_bitrate: Option<u32>) -> Result<Pat
 
     let mut cmd = FfmpegCommand::new();
     cmd.overwrite()
-        .input(&input.to_string_lossy())
+        .input(input.to_string_lossy())
         .codec_audio("libmp3lame");
 
     if let Some(abr_kbps) = audio_bitrate {
@@ -184,7 +184,7 @@ pub fn convert_to_mp3(input: &PathBuf, audio_bitrate: Option<u32>) -> Result<Pat
         cmd.print_command();
     }
 
-    cmd.output(&output.to_string_lossy());
+    cmd.output(output.to_string_lossy());
 
     let mut child = cmd
         .spawn()

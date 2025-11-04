@@ -10,6 +10,7 @@ use walkdir::WalkDir;
 
 use crate::auth;
 use crate::media::ffmpeg::ensure_ffmpeg_available;
+use crate::media::metadata::extract_media_metadata;
 use crate::media::transcode::{
     convert_to_mp3, create_rendition, has_video_streams, is_mxf_file, Preset, RenditionDefinition,
 };
@@ -358,7 +359,11 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
             .to_string_lossy()
             .to_string();
 
-        let source_info = SourceFileInfo::new(
+        let umid = extract_media_metadata(&file_info.original_path)
+            .ok()
+            .and_then(|metadata| metadata.umid);
+
+        let mut source_info = SourceFileInfo::new(
             "__user_upload__".to_string(),
             None,
             None,
@@ -370,6 +375,10 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
             None,
             vec![],
         );
+
+        if let Some(umid_value) = umid {
+            source_info.umid = Some(Some(umid_value));
+        }
 
         let req = AssetUploadRequest::new(
             i32::try_from(content_length).unwrap_or(i32::MAX),
@@ -433,7 +442,8 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
                 responses.clone(),
                 None::<tellers_api_client::models::VersionReference>,
             );
-            preproc_req.generate_time_based_media_description = Some(!args.disable_description_generation);
+            preproc_req.generate_time_based_media_description =
+                Some(!args.disable_description_generation);
             let _ = progress_handle.add_info(format!(
                 "Triggering preprocessing for {} asset(s)...",
                 preproc_req.assets.len()
@@ -487,7 +497,8 @@ async fn request_presigned_urls(
                 r.upload_id,
                 r.content_length,
                 r.source_file
-                    .in_app_path.first()
+                    .in_app_path
+                    .first()
                     .cloned()
                     .unwrap_or_default()
             );
