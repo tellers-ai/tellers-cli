@@ -90,12 +90,12 @@ pub fn create_rendition(
     if let (Ok(in_md), Ok(out_md)) = (std::fs::metadata(input), std::fs::metadata(&output)) {
         if let (Ok(in_time), Ok(out_time)) = (in_md.modified(), out_md.modified()) {
             if out_time >= in_time {
-                println!(
-                    "  reusing existing rendition for {} at {} ({})",
+                crate::output::info(format!(
+                    "Reusing existing rendition for {} at {} ({})",
                     input.display(),
                     output.display(),
                     definition.to_name()
-                );
+                ));
                 return Ok(output);
             }
         }
@@ -159,11 +159,11 @@ pub fn convert_to_mp3(input: &PathBuf, audio_bitrate: Option<u32>) -> Result<Pat
     if let (Ok(in_md), Ok(out_md)) = (std::fs::metadata(input), std::fs::metadata(&output)) {
         if let (Ok(in_time), Ok(out_time)) = (in_md.modified(), out_md.modified()) {
             if out_time >= in_time {
-                println!(
-                    "  reusing existing MP3 conversion for {} at {}",
+                crate::output::info(format!(
+                    "Reusing existing MP3 conversion for {} at {}",
                     input.display(),
                     output.display()
-                );
+                ));
                 return Ok(output);
             }
         }
