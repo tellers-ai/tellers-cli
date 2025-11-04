@@ -56,6 +56,9 @@ pub struct UploadArgs {
 
     #[arg(long, default_value_t = false)]
     pub dry_run: bool,
+
+    #[arg(long, default_value_t = false)]
+    pub disable_description_generation: bool,
 }
 
 struct FileToUpload {
@@ -426,10 +429,11 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
             let _ = progress_handle.add_success("All uploads completed");
 
             // Call preprocess for uploaded assets
-            let preproc_req = ProcessAssetsRequest::new(
+            let mut preproc_req = ProcessAssetsRequest::new(
                 responses.clone(),
                 None::<tellers_api_client::models::VersionReference>,
             );
+            preproc_req.generate_time_based_media_description = Some(!args.disable_description_generation);
             let _ = progress_handle.add_info(format!(
                 "Triggering preprocessing for {} asset(s)...",
                 preproc_req.assets.len()
