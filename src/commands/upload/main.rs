@@ -358,11 +358,11 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-
+        output::info(format!("File name: {}", file_info.original_path.display()));
         let umid = extract_media_metadata(&file_info.original_path)
             .ok()
             .and_then(|metadata| metadata.umid);
-
+        output::info(format!("UUMD: {:?}", umid));
         let mut source_info = SourceFileInfo::new(
             "__user_upload__".to_string(),
             None,

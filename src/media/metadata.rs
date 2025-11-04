@@ -12,6 +12,7 @@ pub fn extract_media_metadata(path: &PathBuf) -> Result<MediaMetadata, String> {
 }
 
 fn extract_umid(path: &PathBuf) -> Result<Option<String>, String> {
+    // Try to extract UMID from format tags (general formats)
     let output = Command::new("ffprobe")
         .args([
             "-v",
@@ -25,15 +26,35 @@ fn extract_umid(path: &PathBuf) -> Result<Option<String>, String> {
         .output()
         .map_err(|e| format!("failed to run ffprobe for umid extraction: {}", e))?;
 
-    if !output.status.success() {
-        return Ok(None);
+    if output.status.success() {
+        let output_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !output_str.is_empty() {
+            return Ok(Some(output_str));
+        }
     }
 
-    let output_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    // For MXF files, try to extract material_package_umid from format metadata
+    let output = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format_tags=material_package_umid",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            &path.to_string_lossy(),
+        ])
+        .output()
+        .map_err(|e| format!("failed to run ffprobe for material_package_umid extraction: {}", e))?;
 
-    if output_str.is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(output_str))
+    if output.status.success() {
+        let output_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !output_str.is_empty() {
+            // Remove the "0x" prefix if present
+            let umid = output_str.strip_prefix("0x").unwrap_or(&output_str).to_string();
+            return Ok(Some(umid));
+        }
     }
+
+    Ok(None)
 }
