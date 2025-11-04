@@ -21,7 +21,7 @@ use crate::output;
 use crate::tui::ProgressHandle;
 use crate::uploads_tracking;
 
-use tellers_api_client::apis::auth_required_api as api;
+use tellers_api_client::apis::accepts_api_key_api as api;
 use tellers_api_client::apis::configuration::Configuration;
 use tellers_api_client::models::{
     AssetUploadRequest, AssetUploadResponse, ProcessAssetsRequest, SourceFileInfo,
