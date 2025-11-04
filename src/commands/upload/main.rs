@@ -58,7 +58,6 @@ pub struct UploadArgs {
     pub dry_run: bool,
 }
 
-
 struct FileToUpload {
     upload_path: PathBuf,
     original_path: PathBuf,
@@ -107,15 +106,15 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
         original_files.retain(|file_path| has_extension(file_path, &args.ext));
         let filtered_count = original_files.len();
         if filtered_count < before_count {
-        output::info(format!(
-            "Filtered to {} file(s) matching extensions: {}",
-            filtered_count,
-            args.ext
-                .iter()
-                .map(|e| e.trim_start_matches('.'))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
+            output::info(format!(
+                "Filtered to {} file(s) matching extensions: {}",
+                filtered_count,
+                args.ext
+                    .iter()
+                    .map(|e| e.trim_start_matches('.'))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
         if original_files.is_empty() {
             return Err(format!(
@@ -252,7 +251,10 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
             }
         }
     } else {
-        output::info(format!("Discovered {} file(s) to upload", original_files.len()));
+        output::info(format!(
+            "Discovered {} file(s) to upload",
+            original_files.len()
+        ));
         for f in &original_files {
             if let Ok(md) = std::fs::metadata(f) {
                 output::item(format!("{} ({} bytes)", f.display(), md.len()));
@@ -333,8 +335,11 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
             content_length
         ));
 
-        let file_in_app_path =
-            super::utils::compute_in_app_path(&file_info.original_path, &base_dir, &args.in_app_path);
+        let file_in_app_path = super::utils::compute_in_app_path(
+            &file_info.original_path,
+            &base_dir,
+            &args.in_app_path,
+        );
         file_in_app_paths.push(file_in_app_path.clone());
         upload_paths.push(file_info.upload_path.clone());
 
@@ -381,15 +386,20 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
                     format!("Bearer {}", b)
                 }
             });
-            let mut progress = crate::tui::InlineProgress::new("Uploading Files", upload_paths.len())?;
+            let mut progress =
+                crate::tui::InlineProgress::new("Uploading Files", upload_paths.len())?;
             let progress_handle = progress.clone_handle();
             let render_handle = progress.start_render_loop(progress_handle.clone());
-            
-            let _ = progress_handle.add_info(format!("Requesting presigned URLs for {} files...", requests.len()));
-            
+
+            let _ = progress_handle.add_info(format!(
+                "Requesting presigned URLs for {} files...",
+                requests.len()
+            ));
+
             let responses =
                 request_presigned_urls(&cfg, &requests, &api_key, bearer_header.as_deref()).await?;
-            let _ = progress_handle.add_info(format!("Received {} presigned URL(s)", responses.len()));
+            let _ =
+                progress_handle.add_info(format!("Received {} presigned URL(s)", responses.len()));
 
             let mut id_to_resp: HashMap<String, AssetUploadResponse> = HashMap::new();
             for r in responses.iter().cloned() {
@@ -407,14 +417,14 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
                 &progress_handle,
             )
             .await;
-            
+
             if let Err(ref e) = upload_result {
                 let _ = progress_handle.add_error(format!("Upload failed: {}", e));
             }
             upload_result?;
 
             let _ = progress_handle.add_success("All uploads completed");
-            
+
             // Call preprocess for uploaded assets
             let preproc_req = ProcessAssetsRequest::new(
                 responses.clone(),
@@ -433,11 +443,12 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
             )
             .await
             .map_err(|e| format!("failed to trigger preprocess: {}", e))?;
-            let _ = progress_handle.add_success(format!("Preprocess tasks queued: {}", preproc_tasks.len()));
-            
+            let _ = progress_handle
+                .add_success(format!("Preprocess tasks queued: {}", preproc_tasks.len()));
+
             crate::tui::InlineProgress::stop_render_loop(render_handle).await;
             progress.finish()?;
-            
+
             // Add empty line after progress display
             println!();
 
@@ -616,13 +627,14 @@ async fn upload_single_file(
     let mut f = File::open(file_path)
         .map_err(|e| format!("failed to open {}: {}", file_path.display(), e))?;
     let mut buf = Vec::with_capacity(total_bytes as usize);
-    
+
     const CHUNK_SIZE: usize = 1024 * 1024; // 1MB chunks
     let mut uploaded = 0u64;
     let mut chunk = vec![0u8; CHUNK_SIZE.min(total_bytes as usize)];
-    
+
     loop {
-        let n = f.read(&mut chunk)
+        let n = f
+            .read(&mut chunk)
             .map_err(|e| format!("failed to read {}: {}", file_path.display(), e))?;
         if n == 0 {
             break;
@@ -671,7 +683,8 @@ async fn upload_single_file(
         &upload_resp.asset_id,
         upload_request_id,
     ) {
-        let _ = progress_handle.add_warning(format!("Failed to record upload in tracking file: {}", e));
+        let _ =
+            progress_handle.add_warning(format!("Failed to record upload in tracking file: {}", e));
     }
 
     Ok(())
