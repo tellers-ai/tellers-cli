@@ -9,10 +9,9 @@
 //! - Complete raw logs preserved in files for debugging
 //! - No conflicts between logger output and TUI rendering
 
-use console::style;
-use log::{Level, Log, Metadata, Record};
+use log::{Log, Metadata, Record};
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
 

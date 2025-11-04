@@ -1,6 +1,5 @@
 use console::{style, Emoji};
 use crossterm::terminal;
-use log;
 
 static INFO_ICON: Emoji<'_, '_> = Emoji("ℹ ", "");
 static WARNING_ICON: Emoji<'_, '_> = Emoji("⚠ ", "");

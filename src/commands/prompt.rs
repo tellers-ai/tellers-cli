@@ -255,7 +255,7 @@ fn stream_and_print(
             }
         };
         let request = AgentMessageRequest::new(message);
-        let _ = rt.block_on(async move {
+        rt.block_on(async move {
             let _ = send_agent_message_stream(
                 &cfg_clone,
                 &api_key_clone,

@@ -28,9 +28,28 @@ export TELLERS_API_BASE=https://api.tellers.ai
 
 ## Usage
 
+### Chat Commands
+
 - `tellers "prompt"` — displays a minimal chat TUI from a streamed response
 - `tellers --full-auto --background "prompt"` — starts a chat and prints only the chat id
-- `tellers upload --only-proxies /path/to/media_folder` — uploads media folder (proxies only if flag set)
+
+### Upload Command
+
+Upload media files to Tellers:
+
+```bash
+tellers upload /path/to/media_folder
+```
+
+**Common flags:**
+
+- `--disable-description-generation` — Disable automatic time-based media description generation (enabled by default)
+- `--dry-run` — Analyze files without uploading
+- `--force-upload` — Upload files even if they were already uploaded
+- `--local-encoding` — Enable local encoding before upload
+- `--parallel-uploads <N>` — Number of parallel uploads (default: 4)
+- `--ext <EXT>` — Filter files by extension (e.g., `--ext mp4 --ext mov`)
+- `--in-app-path <PATH>` — Set the in-app path for uploaded files
 
 ## Implementation Notes
 
