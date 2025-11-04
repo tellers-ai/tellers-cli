@@ -476,8 +476,7 @@ async fn request_presigned_urls(
             format!("{}/users/assets/upload_urls", cfg.base_path)
         );
         println!(
-            "headers: x-api-key={}, authorization={}",
-            "set",
+            "headers: x-api-key=set, authorization={}",
             if bearer_opt.is_some() { "set" } else { "unset" }
         );
         println!("query params: (none)");
@@ -488,8 +487,7 @@ async fn request_presigned_urls(
                 r.upload_id,
                 r.content_length,
                 r.source_file
-                    .in_app_path
-                    .get(0)
+                    .in_app_path.first()
                     .cloned()
                     .unwrap_or_default()
             );

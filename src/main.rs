@@ -36,13 +36,11 @@ fn main() {
                             std::process::exit(1);
                         }
                     }
-                } else {
-                    if let Err(error) =
-                        commands::prompt::run_interactive(prompt_text, cli.full_auto)
-                    {
-                        eprintln!("error: {}", error);
-                        std::process::exit(1);
-                    }
+                } else if let Err(error) =
+                    commands::prompt::run_interactive(prompt_text, cli.full_auto)
+                {
+                    eprintln!("error: {}", error);
+                    std::process::exit(1);
                 }
             } else {
                 // No subcommand and no prompt provided

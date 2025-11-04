@@ -103,7 +103,7 @@ pub fn create_rendition(
 
     let mut cmd = FfmpegCommand::new();
     cmd.overwrite()
-        .input(input.to_string_lossy().to_string())
+        .input(&input.to_string_lossy())
         .codec_video("libx264");
 
     if let Some(q) = definition.quality {
@@ -126,7 +126,7 @@ pub fn create_rendition(
         cmd.print_command();
     }
 
-    cmd.output(output.to_string_lossy().to_string());
+    cmd.output(&output.to_string_lossy());
 
     let mut child = cmd
         .spawn()
@@ -171,7 +171,7 @@ pub fn convert_to_mp3(input: &PathBuf, audio_bitrate: Option<u32>) -> Result<Pat
 
     let mut cmd = FfmpegCommand::new();
     cmd.overwrite()
-        .input(input.to_string_lossy().to_string())
+        .input(&input.to_string_lossy())
         .codec_audio("libmp3lame");
 
     if let Some(abr_kbps) = audio_bitrate {
@@ -184,7 +184,7 @@ pub fn convert_to_mp3(input: &PathBuf, audio_bitrate: Option<u32>) -> Result<Pat
         cmd.print_command();
     }
 
-    cmd.output(output.to_string_lossy().to_string());
+    cmd.output(&output.to_string_lossy());
 
     let mut child = cmd
         .spawn()
@@ -206,9 +206,7 @@ pub fn convert_to_mp3(input: &PathBuf, audio_bitrate: Option<u32>) -> Result<Pat
 pub fn is_mxf_file(path: &PathBuf) -> bool {
     path.extension()
         .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase()
-        == "mxf"
+        .unwrap_or("").eq_ignore_ascii_case("mxf")
 }
 
 pub fn has_video_streams(path: &PathBuf) -> Result<bool, String> {
