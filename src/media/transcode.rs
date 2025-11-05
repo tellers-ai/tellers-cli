@@ -104,7 +104,8 @@ pub fn create_rendition(
     let mut cmd = FfmpegCommand::new();
     cmd.overwrite()
         .input(input.to_string_lossy())
-        .codec_video("libx264");
+        .codec_video("libx264")
+        .args(["-pix_fmt", "yuv420p"]);
 
     if let Some(q) = definition.quality {
         let height = q.height();
