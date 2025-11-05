@@ -1,4 +1,5 @@
 use clap::Args;
+use regex::Regex;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
@@ -55,6 +56,9 @@ pub struct UploadArgs {
     #[arg(long, num_args = 1..)]
     pub ext: Vec<String>,
 
+    #[arg(long, num_args = 1..)]
+    pub regex: Vec<String>,
+
     #[arg(long, default_value_t = false)]
     pub dry_run: bool,
 
@@ -81,6 +85,15 @@ fn has_extension(file_path: &PathBuf, extensions: &[String]) -> bool {
     extensions
         .iter()
         .any(|ext| ext.trim_start_matches('.').to_ascii_lowercase() == file_ext)
+}
+
+fn matches_regex(file_path: &PathBuf, regex_patterns: &[Regex]) -> bool {
+    if regex_patterns.is_empty() {
+        return true;
+    }
+
+    let path_str = file_path.to_string_lossy();
+    regex_patterns.iter().any(|re| re.is_match(&path_str))
 }
 
 pub fn run(args: UploadArgs) -> Result<(), String> {
@@ -128,6 +141,33 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
                     .map(|e| e.trim_start_matches('.'))
                     .collect::<Vec<_>>()
                     .join(", ")
+            ));
+        }
+    }
+
+    if !args.regex.is_empty() {
+        let regex_patterns: Result<Vec<Regex>, _> = args
+            .regex
+            .iter()
+            .map(|pattern| Regex::new(pattern))
+            .collect();
+        let regex_patterns = regex_patterns
+            .map_err(|e| format!("invalid regex pattern: {}", e))?;
+
+        let before_count = original_files.len();
+        original_files.retain(|file_path| matches_regex(file_path, &regex_patterns));
+        let filtered_count = original_files.len();
+        if filtered_count < before_count {
+            output::info(format!(
+                "Filtered to {} file(s) matching regex patterns: {}",
+                filtered_count,
+                args.regex.join(", ")
+            ));
+        }
+        if original_files.is_empty() {
+            return Err(format!(
+                "no files found matching regex patterns: {}",
+                args.regex.join(", ")
             ));
         }
     }
