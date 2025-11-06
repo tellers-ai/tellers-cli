@@ -12,7 +12,6 @@ pub fn extract_media_metadata(path: &PathBuf) -> Result<MediaMetadata, String> {
 }
 
 fn extract_umid(path: &PathBuf) -> Result<Option<String>, String> {
-    // Try to extract UMID from format tags (general formats)
     let output = Command::new("ffprobe")
         .args([
             "-v",
@@ -33,7 +32,6 @@ fn extract_umid(path: &PathBuf) -> Result<Option<String>, String> {
         }
     }
 
-    // For MXF files, try to extract material_package_umid from format metadata
     let output = Command::new("ffprobe")
         .args([
             "-v",
@@ -50,7 +48,6 @@ fn extract_umid(path: &PathBuf) -> Result<Option<String>, String> {
     if output.status.success() {
         let output_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !output_str.is_empty() {
-            // Remove the "0x" prefix if present
             let umid = output_str.strip_prefix("0x").unwrap_or(&output_str).to_string();
             return Ok(Some(umid));
         }
