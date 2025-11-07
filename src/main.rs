@@ -13,10 +13,16 @@ fn main() {
     if let Err(e) = logger::init() {
         eprintln!("Warning: Failed to initialize logger: {}", e);
     }
-    
+
     let cli = Cli::parse();
 
     match cli.command {
+        Some(cli::Command::List(list_args)) => {
+            if let Err(error) = commands::list::run(list_args) {
+                eprintln!("error: {}", error);
+                std::process::exit(1);
+            }
+        }
         Some(cli::Command::Upload(upload_args)) => {
             if let Err(error) = commands::upload::run(upload_args) {
                 eprintln!("error: {}", error);
