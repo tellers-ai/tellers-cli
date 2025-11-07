@@ -10,6 +10,7 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::auth;
+use crate::commands::api_config;
 use crate::media::ffmpeg::ensure_ffmpeg_available;
 use crate::media::metadata::extract_media_metadata;
 use crate::media::transcode::{
@@ -314,27 +315,11 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
         }
     }
 
-    let api_base = std::env::var("TELLERS_API_BASE")
-        .unwrap_or_else(|_| "https://api.prod.aws.tellers.ai".to_string());
-    let api_key =
-        std::env::var("TELLERS_API_KEY").map_err(|_| "TELLERS_API_KEY not set".to_string())?;
-
-    let mut cfg = Configuration::default();
-    cfg.base_path = api_base;
+    let cfg = api_config::create_config();
+    let api_key = api_config::get_api_key(None)?;
     output::info(format!("API base: {}", cfg.base_path));
 
-    let bearer_env = args
-        .auth_bearer
-        .clone()
-        .or_else(|| std::env::var("TELLERS_AUTH_BEARER").ok())
-        .filter(|v| !v.is_empty());
-    let bearer_header_for_auth = bearer_env.as_deref().map(|b| {
-        if b.starts_with("Bearer ") {
-            b.to_string()
-        } else {
-            format!("Bearer {}", b)
-        }
-    });
+    let bearer_header_for_auth = api_config::get_bearer_header(args.auth_bearer.clone());
     let user_id = auth::get_user_id_from_bearer(bearer_header_for_auth.as_deref());
 
     if !args.force_upload {
@@ -429,13 +414,7 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
     tokio::runtime::Runtime::new()
         .map_err(|e| format!("failed to start runtime: {}", e))?
         .block_on(async move {
-            let bearer_header = bearer_env.as_deref().map(|b| {
-                if b.starts_with("Bearer ") {
-                    b.to_string()
-                } else {
-                    format!("Bearer {}", b)
-                }
-            });
+            let bearer_header = api_config::get_bearer_header(args.auth_bearer.clone());
             let mut progress =
                 crate::tui::InlineProgress::new("Uploading Files", upload_paths.len())?;
             let progress_handle = progress.clone_handle();
