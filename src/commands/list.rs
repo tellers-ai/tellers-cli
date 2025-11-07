@@ -6,42 +6,32 @@ use tellers_api_client::models::FileReference;
 
 #[derive(Args, Debug)]
 pub struct ListArgs {
-    /// Path to list files from
     pub path: String,
 
-    /// Regex pattern to filter file names
     #[arg(long)]
     pub regex: Option<String>,
 
-    /// Minimum duration in seconds (inclusive)
     #[arg(long)]
     pub min_duration: Option<f64>,
 
-    /// Maximum duration in seconds (inclusive)
     #[arg(long)]
     pub max_duration: Option<f64>,
 
-    /// Only show files without duration (null duration)
     #[arg(long, default_value_t = false)]
     pub no_duration: bool,
 
-    /// Maximum number of results to return
     #[arg(long, default_value_t = 100)]
     pub limit: i32,
 
-    /// Page number (0-indexed)
     #[arg(long, default_value_t = 0)]
     pub page: i32,
 
-    /// Only output file IDs, one per line
     #[arg(long, default_value_t = false)]
     pub only_id: bool,
 
-    /// API key (can also be set via TELLERS_API_KEY env var)
     #[arg(long, env = "TELLERS_API_KEY")]
     pub api_key: Option<String>,
 
-    /// Bearer token (can also be set via TELLERS_AUTH_BEARER env var)
     #[arg(long, env = "TELLERS_AUTH_BEARER")]
     pub auth_bearer: Option<String>,
 }
@@ -69,7 +59,6 @@ pub fn run(args: ListArgs) -> Result<(), String> {
         }
     });
 
-    // Compile regex if provided
     let regex_pattern = if let Some(ref pattern) = args.regex {
         Some(Regex::new(pattern).map_err(|e| format!("Invalid regex pattern: {}", e))?)
     } else {
@@ -82,14 +71,13 @@ pub fn run(args: ListArgs) -> Result<(), String> {
     tokio::runtime::Runtime::new()
         .map_err(|e| format!("failed to start runtime: {}", e))?
         .block_on(async move {
-            // Fetch files from API
             let files = api::request_files_processing_users_sources_list_files_get(
                 &cfg,
                 &args.path,
                 limit,
                 page,
-                None, // folder_on_top
-                None, // with_public_assets
+                None,
+                None,
                 Some(&api_key),
                 bearer_header.as_deref(),
             )
@@ -113,15 +101,11 @@ pub fn run(args: ListArgs) -> Result<(), String> {
                 m
             })?;
 
-            // Apply filters
             let mut filtered_files: Vec<&FileReference> = files.iter().collect();
-
-            // Apply regex filter
             if let Some(ref regex) = regex_pattern {
                 filtered_files.retain(|file| regex.is_match(&file.file_name));
             }
 
-            // Apply duration filters
             if args.min_duration.is_some() || args.max_duration.is_some() {
                 filtered_files.retain(|file| {
                     if let Some(Some(duration)) = file.duration_seconds {
@@ -130,28 +114,22 @@ pub fn run(args: ListArgs) -> Result<(), String> {
                         let max_ok = args.max_duration.map_or(true, |max| duration_f64 <= max);
                         min_ok && max_ok
                     } else {
-                        // If duration is None, exclude from duration filtering
-                        // Only include if no duration filters are specified
                         args.min_duration.is_none() && args.max_duration.is_none()
                     }
                 });
             }
 
-            // Apply no-duration filter (only show files without duration)
             if args.no_duration {
                 filtered_files.retain(|file| {
-                    // Keep only files where duration_seconds is None or Some(None)
                     matches!(file.duration_seconds, None | Some(None))
                 });
             }
 
-            // Apply limit to results
             let mut result_files: Vec<&FileReference> = filtered_files.into_iter().collect();
             if result_files.len() > limit as usize {
                 result_files.truncate(limit as usize);
             }
 
-            // Output results
             if args.only_id {
                 for file in result_files {
                     if let Some(ref file_id) = file.file_id {
@@ -159,14 +137,12 @@ pub fn run(args: ListArgs) -> Result<(), String> {
                     }
                 }
             } else {
-                // Calculate column widths
-                let mut id_width = 2; // "ID"
-                let mut name_width = 4; // "Name"
-                let mut type_width = 4; // "Type"
-                let mut duration_width = 8; // "Duration"
-                let mut category_width = 8; // "Category"
+                let mut id_width = 2;
+                let mut name_width = 4;
+                let mut type_width = 4;
+                let mut duration_width = 8;
+                let mut category_width = 8;
 
-                // Prepare data and calculate widths
                 let mut rows: Vec<(String, String, String, String, String)> = Vec::new();
                 for file in &result_files {
                     let duration_str = file
@@ -197,7 +173,6 @@ pub fn run(args: ListArgs) -> Result<(), String> {
                     rows.push((file_id_str, file.file_name.clone(), file_type_str, duration_str, category_str));
                 }
 
-                // Print header with proper spacing
                 println!(
                     "{:<id_w$} | {:<name_w$} | {:<type_w$} | {:<duration_w$} | {:<category_w$}",
                     "ID",
@@ -212,7 +187,6 @@ pub fn run(args: ListArgs) -> Result<(), String> {
                     category_w = category_width
                 );
 
-                // Print separator line
                 println!(
                     "{:-<id_w$}-+-{:-<name_w$}-+-{:-<type_w$}-+-{:-<duration_w$}-+-{:-<category_w$}-",
                     "",
@@ -227,7 +201,6 @@ pub fn run(args: ListArgs) -> Result<(), String> {
                     category_w = category_width
                 );
 
-                // Print data rows
                 for (file_id_str, file_name, file_type_str, duration_str, category_str) in rows {
                     println!(
                         "{:<id_w$} | {:<name_w$} | {:<type_w$} | {:<duration_w$} | {:<category_w$}",
