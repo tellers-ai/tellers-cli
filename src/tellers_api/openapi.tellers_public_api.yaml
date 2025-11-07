@@ -3,6 +3,78 @@ info:
   title: FastAPI
   version: 0.1.0
 paths:
+  /users/sources/list_files:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Request Files Processing
+      operationId: request_files_processing_users_sources_list_files_get
+      parameters:
+      - name: path
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Path
+      - name: limit
+        in: query
+        required: true
+        schema:
+          type: integer
+          title: Limit
+      - name: page
+        in: query
+        required: true
+        schema:
+          type: integer
+          title: Page
+      - name: folder_on_top
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Folder On Top
+      - name: with_public_assets
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: With Public Assets
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FileReference'
+                title: Response Request Files Processing Users Sources List Files
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /users/assets/upload_urls:
     post:
       tags:
@@ -670,6 +742,36 @@ components:
       - context
       - created_at
       title: ChatMessageUserResponse
+    FileReference:
+      properties:
+        file_name:
+          type: string
+          title: File Name
+        is_folder:
+          type: boolean
+          title: Is Folder
+        file_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: File Id
+        file_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: File Type
+        duration_seconds:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Duration Seconds
+      type: object
+      required:
+      - file_name
+      - is_folder
+      - file_id
+      - file_type
+      title: FileReference
     HTTPValidationError:
       properties:
         detail:
