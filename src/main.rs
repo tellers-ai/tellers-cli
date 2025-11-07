@@ -25,6 +25,12 @@ fn main() {
                         std::process::exit(1);
                     }
                 }
+                commands::asset::AssetCommand::Preprocess(preprocess_args) => {
+                    if let Err(error) = commands::asset::preprocess_run(preprocess_args) {
+                        eprintln!("error: {}", error);
+                        std::process::exit(1);
+                    }
+                }
             }
         }
         Some(cli::Command::Upload(upload_args)) => {
