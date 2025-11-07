@@ -17,10 +17,14 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(cli::Command::List(list_args)) => {
-            if let Err(error) = commands::list::run(list_args) {
-                eprintln!("error: {}", error);
-                std::process::exit(1);
+        Some(cli::Command::Asset(asset_args)) => {
+            match asset_args.command {
+                commands::asset::AssetCommand::List(list_args) => {
+                    if let Err(error) = commands::asset::list_run(list_args) {
+                        eprintln!("error: {}", error);
+                        std::process::exit(1);
+                    }
+                }
             }
         }
         Some(cli::Command::Upload(upload_args)) => {
