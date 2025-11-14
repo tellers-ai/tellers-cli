@@ -903,6 +903,11 @@ components:
           - type: string
           - type: 'null'
           title: Umid
+        capture_device_umid:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Capture Device Umid
       type: object
       required:
       - sourceName
