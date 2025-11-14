@@ -384,8 +384,7 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
             .to_string_lossy()
             .to_string();
         let umid = extract_media_metadata(&file_info.original_path)
-            .ok()
-            .and_then(|metadata| metadata.umid);
+            .ok();
         let mut source_info = SourceFileInfo::new(
             "__user_upload__".to_string(),
             None,
@@ -399,8 +398,13 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
             vec![],
         );
 
-        if let Some(umid_value) = umid {
-            source_info.umid = Some(Some(umid_value));
+        if let Some(metadata) = umid {
+            if let Some(umid_value) = metadata.material_package_umid {
+                source_info.capture_device_umid = Some(Some(umid_value));
+            }
+            if let Some(first_umid) = metadata.file_package_umids.first() {
+                source_info.umid = Some(Some(first_umid.clone()));
+            }
         }
 
         let req = AssetUploadRequest::new(
