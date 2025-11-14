@@ -48,6 +48,24 @@ fn run_ffprobe_json(path: &PathBuf) -> Result<Option<Value>, String> {
         .map(Some)
 }
 
+/// Normalise UMID strings by stripping prefixes and non-hex characters.
+///
+/// This function sanitizes UMID (Unique Material Identifier) strings by:
+/// - Trimming whitespace
+/// - Removing the `0x` or `0X` prefix (case-insensitive)
+/// - Removing all non-hexadecimal characters
+/// - Converting to uppercase
+///
+/// # Arguments
+///
+/// * `value` - An optional string slice containing the UMID value to sanitize
+///
+/// # Returns
+///
+/// Returns `Some(String)` with the sanitized UMID if the input is valid and non-empty,
+/// or `None` if the input is `None`, empty, or contains no valid hexadecimal characters.
+///
+/// ```
 fn sanitize_umid(value: Option<&str>) -> Option<String> {
     let value = value?;
     let value = value.trim();
@@ -55,10 +73,8 @@ fn sanitize_umid(value: Option<&str>) -> Option<String> {
         return None;
     }
 
-    // Remove 0x prefix (case-insensitive)
     let value = value.strip_prefix("0x").or_else(|| value.strip_prefix("0X")).unwrap_or(value);
 
-    // Remove all non-hex characters and convert to uppercase
     static HEX_CLEAN_RE: OnceLock<Regex> = OnceLock::new();
     let hex_clean_re = HEX_CLEAN_RE.get_or_init(|| Regex::new(r"[^0-9A-Fa-f]").unwrap());
     let cleaned = hex_clean_re.replace_all(value, "").to_string().to_uppercase();
@@ -84,7 +100,6 @@ fn extract_mxf_umids(path: &PathBuf) -> Result<MxfUmids, String> {
     let mut material = None;
     let mut file_package_ids: Vec<String> = Vec::new();
 
-    // Extract material_package_umid from format tags
     if let Some(format) = payload.get("format") {
         if let Some(tags) = format.get("tags") {
             if let Some(tags_obj) = tags.as_object() {
@@ -95,7 +110,6 @@ fn extract_mxf_umids(path: &PathBuf) -> Result<MxfUmids, String> {
         }
     }
 
-    // Extract file_package_umid from stream tags
     if let Some(streams) = payload.get("streams") {
         if let Some(streams_array) = streams.as_array() {
             for stream in streams_array {
