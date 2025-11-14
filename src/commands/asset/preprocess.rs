@@ -1,7 +1,8 @@
 use clap::Args;
 use tellers_api_client::apis::accepts_api_key_api as api;
-use tellers_api_client::apis::configuration::Configuration;
 use tellers_api_client::models::{AssetUploadResponse, ProcessAssetsRequest};
+
+use crate::commands::api_config;
 
 #[derive(Args, Debug)]
 pub struct PreprocessArgs {
@@ -19,27 +20,9 @@ pub struct PreprocessArgs {
 }
 
 pub fn run(args: PreprocessArgs) -> Result<(), String> {
-    let api_base = std::env::var("TELLERS_API_BASE")
-        .unwrap_or_else(|_| "https://api.prod.aws.tellers.ai".to_string());
-    let api_key = args
-        .api_key
-        .or_else(|| std::env::var("TELLERS_API_KEY").ok())
-        .ok_or_else(|| "TELLERS_API_KEY not set".to_string())?;
-
-    let mut cfg = Configuration::default();
-    cfg.base_path = api_base;
-
-    let bearer_env = args
-        .auth_bearer
-        .or_else(|| std::env::var("TELLERS_AUTH_BEARER").ok())
-        .filter(|v| !v.is_empty());
-    let bearer_header = bearer_env.as_deref().map(|b| {
-        if b.starts_with("Bearer ") {
-            b.to_string()
-        } else {
-            format!("Bearer {}", b)
-        }
-    });
+    let cfg = api_config::create_config();
+    let api_key = api_config::get_api_key(args.api_key)?;
+    let bearer_header = api_config::get_bearer_header(args.auth_bearer);
 
     tokio::runtime::Runtime::new()
         .map_err(|e| format!("failed to start runtime: {}", e))?

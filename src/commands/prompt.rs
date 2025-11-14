@@ -5,24 +5,12 @@ use std::thread;
 use tellers_api_client::apis::configuration::Configuration;
 use tellers_api_client::models::AgentMessageRequest;
 
-pub fn run_interactive(prompt_text: String, _full_auto: bool) -> Result<(), String> {
-    let api_base = std::env::var("TELLERS_API_BASE")
-        .unwrap_or_else(|_| "https://api.prod.aws.tellers.ai".to_string());
-    let api_key =
-        std::env::var("TELLERS_API_KEY").map_err(|_| "TELLERS_API_KEY not set".to_string())?;
-    let bearer = std::env::var("TELLERS_AUTH_BEARER")
-        .ok()
-        .filter(|v| !v.is_empty());
-    let bearer_header = bearer.as_deref().map(|b| {
-        if b.starts_with("Bearer ") {
-            b.to_string()
-        } else {
-            format!("Bearer {}", b)
-        }
-    });
+use crate::commands::api_config;
 
-    let mut cfg = Configuration::default();
-    cfg.base_path = api_base;
+pub fn run_interactive(prompt_text: String, _full_auto: bool) -> Result<(), String> {
+    let cfg = api_config::create_config();
+    let api_key = api_config::get_api_key(None)?;
+    let bearer_header = api_config::get_bearer_header(None);
 
     stream_and_print(
         &cfg,
@@ -51,23 +39,9 @@ pub fn run_interactive(prompt_text: String, _full_auto: bool) -> Result<(), Stri
 }
 
 pub fn run_background(prompt_text: String, _full_auto: bool) -> Result<String, String> {
-    let api_base = std::env::var("TELLERS_API_BASE")
-        .unwrap_or_else(|_| "https://api.prod.aws.tellers.ai".to_string());
-    let api_key =
-        std::env::var("TELLERS_API_KEY").map_err(|_| "TELLERS_API_KEY not set".to_string())?;
-    let bearer = std::env::var("TELLERS_AUTH_BEARER")
-        .ok()
-        .filter(|v| !v.is_empty());
-    let bearer_header = bearer.as_deref().map(|b| {
-        if b.starts_with("Bearer ") {
-            b.to_string()
-        } else {
-            format!("Bearer {}", b)
-        }
-    });
-
-    let mut cfg = Configuration::default();
-    cfg.base_path = api_base;
+    let cfg = api_config::create_config();
+    let api_key = api_config::get_api_key(None)?;
+    let bearer_header = api_config::get_bearer_header(None);
 
     let request = AgentMessageRequest::new(prompt_text);
 
