@@ -43,9 +43,21 @@ fn main() {
                 }
             }
         }
-        Some(cli::Command::Group(_group_args)) => {
-            eprintln!("Group commands are not yet available. Please add group endpoints to the OpenAPI spec first.");
-            std::process::exit(1);
+        Some(cli::Command::Group(group_args)) => {
+            match group_args.command {
+                commands::group::GroupCommand::List(list_args) => {
+                    if let Err(error) = commands::group::list_run(list_args) {
+                        eprintln!("error: {}", error);
+                        std::process::exit(1);
+                    }
+                }
+                commands::group::GroupCommand::Create(create_args) => {
+                    if let Err(error) = commands::group::create_run(create_args) {
+                        eprintln!("error: {}", error);
+                        std::process::exit(1);
+                    }
+                }
+            }
         }
         Some(cli::Command::Upload(upload_args)) => {
             if let Err(error) = commands::upload::run(upload_args) {
