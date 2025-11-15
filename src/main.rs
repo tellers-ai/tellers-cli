@@ -33,6 +33,20 @@ fn main() {
                 }
             }
         }
+        Some(cli::Command::Entity(entity_args)) => {
+            match entity_args.command {
+                commands::entity::EntityCommand::Create(create_args) => {
+                    if let Err(error) = commands::entity::create_run(create_args) {
+                        eprintln!("error: {}", error);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+        Some(cli::Command::Group(_group_args)) => {
+            eprintln!("Group commands are not yet available. Please add group endpoints to the OpenAPI spec first.");
+            std::process::exit(1);
+        }
         Some(cli::Command::Upload(upload_args)) => {
             if let Err(error) = commands::upload::run(upload_args) {
                 eprintln!("error: {}", error);
