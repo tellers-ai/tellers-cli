@@ -112,36 +112,3 @@ pub fn is_file_uploaded(user_id: &str, in_app_path: &str) -> Result<bool, String
 
     Ok(false)
 }
-
-pub fn get_asset_id_from_path(user_id: &str, file_path: &Path) -> Result<Option<String>, String> {
-    let uploads_file_path = get_uploads_file_path()?;
-    if !uploads_file_path.exists() {
-        return Ok(None);
-    }
-
-    let uploads = load_uploads_file(&uploads_file_path)?;
-    let file_path_str = file_path.to_string_lossy().to_string();
-
-    if let Some(user_uploads) = uploads.users.get(user_id) {
-        // Try exact match first
-        for uploaded_file in &user_uploads.files {
-            if uploaded_file.local_path == file_path_str && !uploaded_file.asset_id.is_empty() {
-                return Ok(Some(uploaded_file.asset_id.clone()));
-            }
-        }
-
-        // Try canonical path match
-        if let Ok(canonical_path) = file_path.canonicalize() {
-            let canonical_str = canonical_path.to_string_lossy().to_string();
-            for uploaded_file in &user_uploads.files {
-                if let Ok(uploaded_canonical) = PathBuf::from(&uploaded_file.local_path).canonicalize() {
-                    if uploaded_canonical.to_string_lossy() == canonical_str && !uploaded_file.asset_id.is_empty() {
-                        return Ok(Some(uploaded_file.asset_id.clone()));
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(None)
-}

@@ -56,22 +56,14 @@ pub fn run(args: CreateArgs) -> Result<(), String> {
             return Err(format!("File not found: {}", filepath));
         }
 
-        match uploads_tracking::get_asset_id_from_path(&user_id, &file_path)? {
-            Some(id) => {
-                output::info(format!("Found asset_id {} for file {}", id, filepath));
-                Some(id)
-            }
-            None => {
-                output::info(format!("File {} not in upload history, uploading now...", filepath));
-                Some(upload_file_and_get_asset_id(
-                    &file_path,
-                    &cfg,
-                    &api_key,
-                    bearer_header.as_deref(),
-                    &user_id,
-                )?)
-            }
-        }
+        output::info(format!("Uploading file {}...", filepath));
+        Some(upload_file_and_get_asset_id(
+            &file_path,
+            &cfg,
+            &api_key,
+            bearer_header.as_deref(),
+            &user_id,
+        )?)
     } else {
         args.asset_id
     };
