@@ -17,23 +17,18 @@ use crate::uploads_tracking;
 
 #[derive(Args, Debug)]
 pub struct CreateArgs {
-    /// Group ID for the entity
     #[arg(long)]
     pub group_id: String,
 
-    /// Name of the entity
     #[arg(long)]
     pub name: String,
 
-    /// Asset ID to associate with the entity (mutually exclusive with --filepath)
     #[arg(long)]
     pub asset_id: Option<String>,
 
-    /// File path to look up asset ID from (mutually exclusive with --asset-id)
     #[arg(long)]
     pub filepath: Option<String>,
 
-    /// Description for the entity (optional, defaults to empty string)
     #[arg(long, default_value = "")]
     pub description: String,
 
@@ -45,7 +40,6 @@ pub struct CreateArgs {
 }
 
 pub fn run(args: CreateArgs) -> Result<(), String> {
-    // Validate that only one of asset_id or filepath is provided
     if args.asset_id.is_some() && args.filepath.is_some() {
         return Err("Cannot specify both --asset-id and --filepath. Use only one.".to_string());
     }
@@ -54,17 +48,14 @@ pub fn run(args: CreateArgs) -> Result<(), String> {
     let api_key = api_config::get_api_key(args.api_key)?;
     let bearer_header = api_config::get_bearer_header(args.auth_bearer.clone());
 
-    // Get user_id for looking up asset_id from filepath
     let user_id = auth::get_user_id_from_bearer(bearer_header.as_deref());
 
-    // Resolve asset_id from filepath if provided
     let asset_id = if let Some(ref filepath) = args.filepath {
         let file_path = PathBuf::from(filepath);
         if !file_path.exists() {
             return Err(format!("File not found: {}", filepath));
         }
 
-        // First try to find in upload history
         match uploads_tracking::get_asset_id_from_path(&user_id, &file_path)? {
             Some(id) => {
                 output::info(format!("Found asset_id {} for file {}", id, filepath));
@@ -88,7 +79,6 @@ pub fn run(args: CreateArgs) -> Result<(), String> {
     tokio::runtime::Runtime::new()
         .map_err(|e| format!("failed to start runtime: {}", e))?
         .block_on(async move {
-            // Create the entity
             let create_req = CreateEntityRequest::new(
                 args.group_id.clone(),
                 args.name.clone(),
@@ -126,15 +116,12 @@ pub fn run(args: CreateArgs) -> Result<(), String> {
             let entity_id = create_resp.entity_id;
             output::success(format!("Entity created successfully: {}", entity_id));
 
-            // If asset_id is provided, process the entity with that asset
             if let Some(asset_id) = asset_id {
                 output::info(format!("Associating asset {} with entity {}", asset_id, entity_id));
 
-                // Create an AssetUploadResponse from the asset_id
-                // Note: This is a simplified approach - you may need to adjust based on your API
                 let asset = AssetUploadResponse::new(
-                    "".to_string(), // upload_id - not needed for existing assets
-                    "".to_string(), // presigned_put_url - not needed for existing assets
+                    "".to_string(),
+                    "".to_string(),
                     asset_id.clone(),
                 );
 
@@ -143,7 +130,7 @@ pub fn run(args: CreateArgs) -> Result<(), String> {
                 let process_resp = api::process_entity_users_entity_preprocess_post(
                     &cfg,
                     process_req,
-                    None, // priority - use default
+                    None,
                     Some(&api_key),
                     bearer_header.as_deref(),
                 )
@@ -238,7 +225,6 @@ fn upload_file_and_get_asset_id(
 
             output::info(format!("Requesting presigned URL for {}", file_path.display()));
 
-            // Get presigned URL
             let mut responses = api::create_upload_urls_users_assets_upload_urls_post(
                 cfg,
                 vec![upload_req],
@@ -275,12 +261,11 @@ fn upload_file_and_get_asset_id(
 
             output::info(format!("Uploading file to presigned URL..."));
 
-            // Upload file
             let mut f = File::open(file_path)
                 .map_err(|e| format!("failed to open {}: {}", file_path.display(), e))?;
             let mut buf = Vec::with_capacity(content_length as usize);
 
-            const CHUNK_SIZE: usize = 1024 * 1024; // 1MB chunks
+            const CHUNK_SIZE: usize = 1024 * 1024;
             let mut chunk = vec![0u8; CHUNK_SIZE.min(content_length as usize)];
 
             loop {
@@ -326,7 +311,6 @@ fn upload_file_and_get_asset_id(
                 ));
             }
 
-            // Record upload in tracking
             if let Err(e) = uploads_tracking::record_upload(
                 user_id,
                 file_path,
