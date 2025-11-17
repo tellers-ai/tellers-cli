@@ -113,6 +113,16 @@ fn extract_mxf_umids(path: &PathBuf) -> Result<MxfUmids, String> {
     if let Some(streams) = payload.get("streams") {
         if let Some(streams_array) = streams.as_array() {
             for stream in streams_array {
+                // Skip streams with codec_type "data"
+                // codec_type == "data" means that there is no data in the stream
+                if let Some(codec_type) = stream.get("codec_type") {
+                    if let Some(codec_type_str) = codec_type.as_str() {
+                        if codec_type_str == "data" {
+                            continue;
+                        }
+                    }
+                }
+
                 if let Some(tags) = stream.get("tags") {
                     if let Some(tags_obj) = tags.as_object() {
                         if let Some(umid_value) = tags_obj.get("file_package_umid") {
