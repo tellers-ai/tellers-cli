@@ -15,10 +15,9 @@ elif [ -n "${OPENAPI_GENERATOR_CLI_JAR:-}" ] && [ -f "${OPENAPI_GENERATOR_CLI_JA
 elif [ -f "${ROOT_DIR}/openapi-generator-cli.jar" ]; then
   GENERATOR="java -jar ${ROOT_DIR}/openapi-generator-cli.jar"
 else
-  echo "OpenAPI Generator not found. Install one of the following:"
-  echo "  - brew install openapi-generator"
-  echo "  - npm i -g @openapitools/openapi-generator-cli"
-  echo "  - download the JAR and set OPENAPI_GENERATOR_CLI_JAR=/path/to/openapi-generator-cli.jar"
+  echo "OpenAPI Generator not found. We use openapi-generator-cli 7.17.0. Install with version control:"
+  echo "  - brew:  brew install openapi-generator@7.17"
+  echo "  - npm:   npm i -g @openapitools/openapi-generator-cli"
   exit 1
 fi
 
@@ -31,7 +30,7 @@ ${GENERATOR} generate \
   --additional-properties=packageName=tellers_api_client,packageVersion=0.1.0,library=reqwest,supportAsync=true,reqwestClient=true
 
 echo "Generated client at ${OUT_DIR}"
- 
+
 # Inject crate-wide lint allowances for generator naming quirks
 LIB_RS="${OUT_DIR}/src/lib.rs"
 if [ -f "${LIB_RS}" ]; then
