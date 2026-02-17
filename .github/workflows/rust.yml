@@ -20,7 +20,7 @@ jobs:
         with:
           generator: rust
           openapi-file: src/tellers_api/openapi.tellers_public_api.yaml
-          generator-tag: latest
+          generator-tag: v7.17.0
           command-args: >
             -o generated/tellers_api_client
             --additional-properties=packageName=tellers_api_client,packageVersion=0.1.0,library=reqwest,supportAsync=true,reqwestClient=true

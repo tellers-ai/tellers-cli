@@ -153,6 +153,66 @@ fn compute_audio_output_path(input: &PathBuf, out_base: &PathBuf) -> PathBuf {
     ))
 }
 
+fn compute_normalized_audio_output_path(input: &PathBuf, out_base: &PathBuf) -> PathBuf {
+    out_base.join(format!(
+        "{}_norm.mp3",
+        input.file_stem().unwrap().to_string_lossy()
+    ))
+}
+
+pub fn normalize_audio_to_mp3(
+    input: &PathBuf,
+    audio_bitrate: Option<u32>,
+) -> Result<PathBuf, String> {
+    let temp_base = get_temp_rendition_dir()?;
+    let output = compute_normalized_audio_output_path(input, &temp_base);
+
+    if let (Ok(in_md), Ok(out_md)) = (std::fs::metadata(input), std::fs::metadata(&output)) {
+        if let (Ok(in_time), Ok(out_time)) = (in_md.modified(), out_md.modified()) {
+            if out_time >= in_time {
+                crate::output::info(format!(
+                    "Reusing existing normalized MP3 for {} at {}",
+                    input.display(),
+                    output.display()
+                ));
+                return Ok(output);
+            }
+        }
+    }
+
+    let bitrate_k = audio_bitrate.unwrap_or(192);
+    let loudnorm = "loudnorm=I=-14:LRA=11:TP=-1.5";
+
+    let mut cmd = FfmpegCommand::new();
+    cmd.overwrite()
+        .input(input.to_string_lossy())
+        .args(["-af", loudnorm])
+        .codec_audio("libmp3lame")
+        .args(["-b:a", &format!("{}k", bitrate_k)]);
+
+    if std::env::var("TELLERS_DEBUG_FFMPEG").ok().as_deref() == Some("1") {
+        cmd.print_command();
+    }
+
+    cmd.output(output.to_string_lossy());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to start ffmpeg: {}", e))?;
+    let status = child
+        .wait()
+        .map_err(|e| format!("failed to wait for ffmpeg: {}", e))?;
+    if !status.success() {
+        return Err(format!(
+            "ffmpeg failed normalizing audio to MP3: {} -> {}",
+            input.display(),
+            output.display()
+        ));
+    }
+
+    Ok(output)
+}
+
 pub fn convert_to_mp3(input: &PathBuf, audio_bitrate: Option<u32>) -> Result<PathBuf, String> {
     let temp_base = get_temp_rendition_dir()?;
     let output = compute_audio_output_path(input, &temp_base);
