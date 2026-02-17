@@ -11,23 +11,26 @@ This module provides a simple, reusable abstraction for displaying progress usin
 
 ### Simple Synchronous Usage
 
+Use `clone_handle()` and the handle's methods (render loop is optional for sync use):
+
 ```rust
-use crate::tui::InlineProgress;
+use crate::tui::{InlineProgress, ProgressHandle};
 
 let mut progress = InlineProgress::new("Uploading Files", total_files)?;
+let progress_handle = progress.clone_handle();
 
 for (i, file) in files.iter().enumerate() {
     let file_size = std::fs::metadata(file)?.len();
-    progress.start_task(i, file.display().to_string(), file_size)?;
+    let _ = progress_handle.start_task(i, file.display().to_string(), file_size);
     
     // Simulate upload progress
     for chunk in 0..100 {
         let uploaded = (chunk * file_size / 100) as u64;
-        progress.update_task(i, uploaded)?;
+        let _ = progress_handle.update_task(i, uploaded);
         std::thread::sleep(Duration::from_millis(10));
     }
     
-    progress.finish_task(i, true)?;
+    let _ = progress_handle.finish_task(i, true);
 }
 
 progress.finish()?;
@@ -84,11 +87,9 @@ progress.finish()?;
 ### `InlineProgress`
 
 - `new(title, total_tasks)` - Create a new progress display
-- `start_task(task_id, label, total_bytes)` - Start tracking a task
-- `update_task(task_id, uploaded_bytes)` - Update task progress
-- `finish_task(task_id, success)` - Mark task as complete
-- `add_message(msg)` - Add a status message
-- `clone_handle()` - Get a thread-safe handle
+- `clone_handle()` - Get a thread-safe handle for updates
+- `start_render_loop(handle)` - Start the periodic render task (async)
+- `stop_render_loop(render_handle)` - Stop the render loop
 - `finish()` - Finalize and cleanup
 
 ### `ProgressHandle`

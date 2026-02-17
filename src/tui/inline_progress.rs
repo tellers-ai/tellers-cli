@@ -77,98 +77,6 @@ impl InlineProgress {
         })
     }
 
-    pub fn start_task(
-        &self,
-        task_id: TaskId,
-        label: impl Into<String>,
-        total_bytes: u64,
-    ) -> Result<(), String> {
-        let mut state = self.state.lock().unwrap();
-        state.in_progress.insert(
-            task_id,
-            TaskProgress {
-                label: label.into(),
-                started_at: Instant::now(),
-                progress: 0.0,
-                total_bytes,
-                uploaded_bytes: 0,
-                completed: false,
-            },
-        );
-        drop(state);
-        self.render()?;
-        Ok(())
-    }
-
-    pub fn update_task(&self, task_id: TaskId, uploaded_bytes: u64) -> Result<(), String> {
-        let mut state = self.state.lock().unwrap();
-        if let Some(task) = state.in_progress.get_mut(&task_id) {
-            task.uploaded_bytes = uploaded_bytes;
-            if task.total_bytes > 0 {
-                task.progress = (uploaded_bytes as f64 / task.total_bytes as f64) * 100.0;
-            }
-        }
-        drop(state);
-        self.render()?;
-        Ok(())
-    }
-
-    pub fn finish_task(&self, task_id: TaskId, success: bool) -> Result<(), String> {
-        let mut state = self.state.lock().unwrap();
-        if let Some(task) = state.in_progress.get_mut(&task_id) {
-            if success {
-                task.completed = true;
-                task.progress = 100.0;
-                state.completed += 1;
-                // Don't add to messages - task stays visible in the list with completion status
-            }
-        }
-        drop(state);
-        self.render()?;
-        Ok(())
-    }
-
-    pub fn add_message(&self, msg: impl Into<String>) -> Result<(), String> {
-        self.add_typed_message(msg, MessageType::Info)
-    }
-
-    pub fn add_info(&self, msg: impl Into<String>) -> Result<(), String> {
-        self.add_typed_message(msg, MessageType::Info)
-    }
-
-    pub fn add_warning(&self, msg: impl Into<String>) -> Result<(), String> {
-        self.add_typed_message(msg, MessageType::Warning)
-    }
-
-    pub fn add_error(&self, msg: impl Into<String>) -> Result<(), String> {
-        self.add_typed_message(msg, MessageType::Error)
-    }
-
-    pub fn add_success(&self, msg: impl Into<String>) -> Result<(), String> {
-        self.add_typed_message(msg, MessageType::Success)
-    }
-
-    fn add_typed_message(
-        &self,
-        msg: impl Into<String>,
-        msg_type: MessageType,
-    ) -> Result<(), String> {
-        let mut state = self.state.lock().unwrap();
-        state.recent_messages.insert(
-            0,
-            Message {
-                text: msg.into(),
-                msg_type,
-            },
-        );
-        if state.recent_messages.len() > state.max_messages {
-            state.recent_messages.pop();
-        }
-        drop(state);
-        self.render()?;
-        Ok(())
-    }
-
     pub fn clone_handle(&self) -> ProgressHandle {
         ProgressHandle {
             state: Arc::clone(&self.state),
@@ -211,16 +119,6 @@ impl InlineProgress {
         tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
         render_handle.abort();
         let _ = render_handle.await;
-    }
-
-    fn render(&self) -> Result<(), String> {
-        if let Some(ref mut terminal) = *self.terminal.borrow_mut() {
-            let state = self.state.lock().unwrap();
-            terminal
-                .draw(|frame| draw_ui_internal(frame, &state))
-                .map_err(|e| format!("failed to render: {}", e))?;
-        }
-        Ok(())
     }
 
     pub fn finish(&mut self) -> Result<(), String> {
@@ -295,10 +193,6 @@ impl ProgressHandle {
             }
         }
         Ok(())
-    }
-
-    pub fn add_message(&self, msg: impl Into<String>) -> Result<(), String> {
-        self.add_typed_message(msg, MessageType::Info)
     }
 
     pub fn add_info(&self, msg: impl Into<String>) -> Result<(), String> {

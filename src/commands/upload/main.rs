@@ -13,8 +13,10 @@ use crate::auth;
 use crate::commands::api_config;
 use crate::media::ffmpeg::ensure_ffmpeg_available;
 use crate::media::metadata::extract_media_metadata;
+use crate::media::media_file_type::is_audio_file;
 use crate::media::transcode::{
-    convert_to_mp3, create_rendition, has_video_streams, is_mxf_file, Preset, RenditionDefinition,
+    convert_to_mp3, create_rendition, has_video_streams, is_mxf_file, normalize_audio_to_mp3,
+    Preset, RenditionDefinition,
 };
 use crate::media::video_file_ext::has_video_ext;
 use crate::media::video_quality::parse_quality;
@@ -78,6 +80,8 @@ enum DownscaleWork {
     MxfVideo(PathBuf),
     MxfAudio(PathBuf),
     Video(PathBuf),
+    /// Any other audio (MP3, WAV, FLAC, etc.) → normalize to MP3 for streaming.
+    Audio(PathBuf),
     Passthrough(PathBuf),
 }
 
@@ -409,7 +413,7 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
 
 fn work_item_file_name(w: &DownscaleWork) -> String {
     let p = match w {
-        DownscaleWork::MxfVideo(p) | DownscaleWork::MxfAudio(p) | DownscaleWork::Video(p) | DownscaleWork::Passthrough(p) => p,
+        DownscaleWork::MxfVideo(p) | DownscaleWork::MxfAudio(p) | DownscaleWork::Video(p) | DownscaleWork::Audio(p) | DownscaleWork::Passthrough(p) => p,
     };
     p.file_name().unwrap_or_default().to_string_lossy().to_string()
 }
@@ -452,26 +456,40 @@ fn do_one_downscale(
                 return Ok(None);
             }
         },
-        DownscaleWork::Video(original_path) => {
-            let def = RenditionDefinition {
-                quality: Some(qualities[0]),
-                preset,
-                crf: None,
-                audio_bitrate: None,
-            };
-            match create_rendition(&original_path, def) {
-                Ok(upload_path) => FileToUpload { upload_path, original_path },
-                Err(e) => {
-                    let _ = progress_handle.add_error(format!(
-                        "Downscale failed for {}: {}",
-                        original_path.display(),
-                        e
-                    ));
-                    return Ok(None);
+                DownscaleWork::Video(original_path) => {
+                    let def = RenditionDefinition {
+                        quality: Some(qualities[0]),
+                        preset,
+                        crf: None,
+                        audio_bitrate: None,
+                    };
+                    match create_rendition(&original_path, def) {
+                        Ok(upload_path) => FileToUpload { upload_path, original_path },
+                        Err(e) => {
+                            let _ = progress_handle.add_error(format!(
+                                "Downscale failed for {}: {}",
+                                original_path.display(),
+                                e
+                            ));
+                            return Ok(None);
+                        }
+                    }
                 }
-            }
-        }
-        DownscaleWork::Passthrough(original_path) => FileToUpload {
+                DownscaleWork::Audio(original_path) => match normalize_audio_to_mp3(&original_path, Some(192)) {
+                    Ok(upload_path) => FileToUpload {
+                        upload_path,
+                        original_path,
+                    },
+                    Err(e) => {
+                        let _ = progress_handle.add_error(format!(
+                            "Audio normalization failed for {}: {}",
+                            original_path.display(),
+                            e
+                        ));
+                        return Ok(None);
+                    }
+                },
+                DownscaleWork::Passthrough(original_path) => FileToUpload {
             upload_path: original_path.clone(),
             original_path,
         },
@@ -496,6 +514,8 @@ fn build_downscale_work(original_files: &[PathBuf]) -> Result<Vec<DownscaleWork>
             }
         } else if has_video_ext(path) {
             work.push(DownscaleWork::Video(path.to_path_buf()));
+        } else if is_audio_file(path) {
+            work.push(DownscaleWork::Audio(path.to_path_buf()));
         } else {
             work.push(DownscaleWork::Passthrough(path.to_path_buf()));
         }
