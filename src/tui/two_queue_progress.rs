@@ -22,7 +22,6 @@ const PENDING_DISPLAY: usize = 5;
 pub(crate) struct TwoQueueState {
     pub downscale_queued: usize,
     pub downscale_current: Option<String>,
-    /// Pending file names (next in line); first is next to process.
     pub downscale_pending: Vec<String>,
     pub upload_queued: usize,
     pub upload_current: Option<String>,
@@ -157,13 +156,11 @@ impl TwoQueueProgressHandle {
         s.downscale_current = label.map(Into::into);
     }
 
-    /// Set the list of pending file names for downscale (next in line). Call at start; then pop when starting each.
     pub fn set_downscale_pending(&self, names: Vec<String>) {
         let mut s = self.state.lock().unwrap();
         s.downscale_pending = names;
     }
 
-    /// Remove the first pending downscale (the one now being processed). Call when starting a downscale.
     pub fn pop_downscale_pending(&self) {
         let mut s = self.state.lock().unwrap();
         if !s.downscale_pending.is_empty() {

@@ -153,7 +153,6 @@ fn compute_audio_output_path(input: &PathBuf, out_base: &PathBuf) -> PathBuf {
     ))
 }
 
-/// Output path for normalized audio (so we don't overwrite convert_to_mp3 cache).
 fn compute_normalized_audio_output_path(input: &PathBuf, out_base: &PathBuf) -> PathBuf {
     out_base.join(format!(
         "{}_norm.mp3",
@@ -161,8 +160,6 @@ fn compute_normalized_audio_output_path(input: &PathBuf, out_base: &PathBuf) -> 
     ))
 }
 
-/// Normalize any audio to MP3 with loudness normalization (-14 LUFS) and good bitrate for streaming.
-/// Uses FFmpeg loudnorm filter; output is 192k MP3 by default.
 pub fn normalize_audio_to_mp3(
     input: &PathBuf,
     audio_bitrate: Option<u32>,
@@ -184,7 +181,6 @@ pub fn normalize_audio_to_mp3(
     }
 
     let bitrate_k = audio_bitrate.unwrap_or(192);
-    // Loudness normalization for streaming: -14 LUFS, true peak -1.5 dBTP, LRA 11
     let loudnorm = "loudnorm=I=-14:LRA=11:TP=-1.5";
 
     let mut cmd = FfmpegCommand::new();

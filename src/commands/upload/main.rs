@@ -75,12 +75,10 @@ struct FileToUpload {
     original_path: PathBuf,
 }
 
-/// Work item for the downscale queue (one per file, no batching).
 enum DownscaleWork {
     MxfVideo(PathBuf),
     MxfAudio(PathBuf),
     Video(PathBuf),
-    /// Any other audio (MP3, WAV, FLAC, etc.) → normalize to MP3 for streaming.
     Audio(PathBuf),
     Passthrough(PathBuf),
 }
@@ -418,7 +416,6 @@ fn work_item_file_name(w: &DownscaleWork) -> String {
     p.file_name().unwrap_or_default().to_string_lossy().to_string()
 }
 
-/// Runs in spawn_blocking. Returns Ok(Some(file)) on success, Ok(None) on skip/error (reported via handle).
 fn do_one_downscale(
     work: DownscaleWork,
     progress_handle: &TwoQueueProgressHandle,
@@ -895,7 +892,6 @@ async fn upload_to_presigned_urls(
     Ok(())
 }
 
-/// Upload file to presigned URL (no progress UI, no tracking). Used by the two-queue pipeline.
 async fn upload_file_to_presigned(
     file_path: &PathBuf,
     upload_resp: &AssetUploadResponse,
