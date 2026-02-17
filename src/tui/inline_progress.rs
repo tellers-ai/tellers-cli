@@ -41,8 +41,8 @@ pub(crate) enum MessageType {
 
 #[derive(Clone)]
 pub(crate) struct Message {
-    text: String,
-    msg_type: MessageType,
+    pub(crate) text: String,
+    pub(crate) msg_type: MessageType,
 }
 
 pub(crate) struct ProgressState {

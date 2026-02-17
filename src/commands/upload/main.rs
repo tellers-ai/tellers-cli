@@ -20,8 +20,9 @@ use crate::media::video_file_ext::has_video_ext;
 use crate::media::video_quality::parse_quality;
 use crate::media::video_quality::VideoQuality;
 use crate::output;
-use crate::tui::ProgressHandle;
+use crate::tui::{ProgressHandle, TwoQueueProgress, TwoQueueProgressHandle};
 use crate::uploads_tracking;
+use tokio::sync::mpsc as tokio_mpsc;
 
 use tellers_api_client::apis::accepts_api_key_api as api;
 use tellers_api_client::apis::configuration::Configuration;
@@ -70,6 +71,14 @@ pub struct UploadArgs {
 struct FileToUpload {
     upload_path: PathBuf,
     original_path: PathBuf,
+}
+
+/// Work item for the downscale queue (one per file, no batching).
+enum DownscaleWork {
+    MxfVideo(PathBuf),
+    MxfAudio(PathBuf),
+    Video(PathBuf),
+    Passthrough(PathBuf),
 }
 
 fn has_extension(file_path: &PathBuf, extensions: &[String]) -> bool {
@@ -183,138 +192,6 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
         );
     }
 
-    let mut files_to_upload: Vec<FileToUpload> = Vec::new();
-    if args.local_encoding {
-        ensure_ffmpeg_available()?;
-        output::info(format!(
-            "Local encoding enabled; generating renditions in temp dir: {}",
-            args.qualities
-                .iter()
-                .map(|q| q.as_label())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-
-        for original_file in &original_files {
-            if is_mxf_file(original_file) {
-                match has_video_streams(original_file) {
-                    Ok(true) => {
-                        if args.qualities.len() > 1 {
-                            return Err("Only supporting single quality for now".to_string());
-                        }
-                        output::info(format!(
-                            "MXF file {} contains video, converting to MP4",
-                            original_file.display()
-                        ));
-                        let encoded_file = create_rendition(
-                            original_file,
-                            RenditionDefinition {
-                                quality: Some(args.qualities[0]),
-                                preset: args.preset,
-                                crf: None,
-                                audio_bitrate: None,
-                            },
-                        )
-                        .map_err(|e| {
-                            format!(
-                                "failed to encode MXF rendition for {}: {}",
-                                original_file.display(),
-                                e
-                            )
-                        })?;
-                        files_to_upload.push(FileToUpload {
-                            upload_path: encoded_file,
-                            original_path: original_file.clone(),
-                        });
-                    }
-                    Ok(false) => {
-                        output::info(format!(
-                            "MXF file {} is audio-only, converting to MP3",
-                            original_file.display()
-                        ));
-                        let encoded_file = convert_to_mp3(original_file, None).map_err(|e| {
-                            format!(
-                                "failed to convert MXF to MP3 for {}: {}",
-                                original_file.display(),
-                                e
-                            )
-                        })?;
-                        files_to_upload.push(FileToUpload {
-                            upload_path: encoded_file,
-                            original_path: original_file.clone(),
-                        });
-                    }
-                    Err(e) => {
-                        return Err(format!(
-                            "failed to check video streams in MXF file {}: {}",
-                            original_file.display(),
-                            e
-                        ));
-                    }
-                }
-            } else if has_video_ext(original_file) {
-                if args.qualities.len() > 1 {
-                    return Err("Only supporting single quality for now".to_string());
-                }
-                let encoded_file = create_rendition(
-                    original_file,
-                    RenditionDefinition {
-                        quality: Some(args.qualities[0]),
-                        preset: args.preset,
-                        crf: None,
-                        audio_bitrate: None,
-                    },
-                )
-                .map_err(|e| {
-                    format!(
-                        "failed to encode rendition for {}: {}",
-                        original_file.display(),
-                        e
-                    )
-                })?;
-                files_to_upload.push(FileToUpload {
-                    upload_path: encoded_file,
-                    original_path: original_file.clone(),
-                });
-            } else {
-                files_to_upload.push(FileToUpload {
-                    upload_path: original_file.clone(),
-                    original_path: original_file.clone(),
-                });
-            }
-        }
-
-        output::info(format!(
-            "Prepared {} file(s) for upload (including renditions)",
-            files_to_upload.len()
-        ));
-        for f in &files_to_upload {
-            if let Ok(md) = std::fs::metadata(&f.upload_path) {
-                output::item(format!("{} ({} bytes)", f.upload_path.display(), md.len()));
-            } else {
-                output::item(format!("{}", f.upload_path.display()));
-            }
-        }
-    } else {
-        output::info(format!(
-            "Discovered {} file(s) to upload",
-            original_files.len()
-        ));
-        for f in &original_files {
-            if let Ok(md) = std::fs::metadata(f) {
-                output::item(format!("{} ({} bytes)", f.display(), md.len()));
-            } else {
-                output::item(format!("{}", f.display()));
-            }
-        }
-        for original_file in original_files {
-            files_to_upload.push(FileToUpload {
-                upload_path: original_file.clone(),
-                original_path: original_file,
-            });
-        }
-    }
-
     let cfg = api_config::create_config();
     let api_key = api_config::get_api_key(None)?;
     output::info(format!("API base: {}", cfg.base_path));
@@ -323,27 +200,66 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
     let user_id = auth::get_user_id_from_bearer(bearer_header_for_auth.as_deref());
 
     if !args.force_upload {
-        let original_count = files_to_upload.len();
-        files_to_upload.retain(|file_info| {
-            !super::utils::is_already_uploaded(
-                &file_info.original_path,
-                &user_id,
-                &base_dir,
-                &args.in_app_path,
-            )
+        let before = original_files.len();
+        original_files.retain(|path| {
+            !super::utils::is_already_uploaded(path, &user_id, &base_dir, &args.in_app_path)
         });
-
-        let skipped = original_count - files_to_upload.len();
+        let skipped = before - original_files.len();
         if skipped > 0 {
             output::info(format!("Skipped {} already uploaded file(s)", skipped));
         }
-
-        if files_to_upload.is_empty() {
+        if original_files.is_empty() {
             return Err("no files to upload (all files were already uploaded)".to_string());
         }
     }
 
     let upload_request_id = Uuid::new_v4().to_string();
+
+    if args.local_encoding {
+        ensure_ffmpeg_available()?;
+        output::info(format!(
+            "Local encoding: downscale + upload queues ({} quality)",
+            args.qualities
+                .iter()
+                .map(|q| q.as_label())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        if args.qualities.len() > 1 {
+            return Err("Only supporting single quality for now".to_string());
+        }
+        let work_items: Vec<DownscaleWork> = build_downscale_work(&original_files)?;
+        output::info(format!("{} file(s) in downscale queue", work_items.len()));
+        return run_two_queue_pipeline(
+            work_items,
+            &base_dir,
+            &args,
+            &cfg,
+            &api_key,
+            bearer_header_for_auth.as_deref(),
+            &user_id,
+            &upload_request_id,
+        );
+    }
+
+    let mut files_to_upload: Vec<FileToUpload> = Vec::new();
+    output::info(format!(
+        "Discovered {} file(s) to upload",
+        original_files.len()
+    ));
+    for f in &original_files {
+        if let Ok(md) = std::fs::metadata(f) {
+            output::item(format!("{} ({} bytes)", f.display(), md.len()));
+        } else {
+            output::item(format!("{}", f.display()));
+        }
+    }
+    for original_file in original_files {
+        files_to_upload.push(FileToUpload {
+            upload_path: original_file.clone(),
+            original_path: original_file,
+        });
+    }
 
     let mut requests: Vec<AssetUploadRequest> = Vec::with_capacity(files_to_upload.len());
     let mut file_upload_ids: Vec<String> = Vec::with_capacity(files_to_upload.len());
@@ -489,6 +405,321 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
 
             Ok(())
         })
+}
+
+fn work_item_file_name(w: &DownscaleWork) -> String {
+    let p = match w {
+        DownscaleWork::MxfVideo(p) | DownscaleWork::MxfAudio(p) | DownscaleWork::Video(p) | DownscaleWork::Passthrough(p) => p,
+    };
+    p.file_name().unwrap_or_default().to_string_lossy().to_string()
+}
+
+/// Runs in spawn_blocking. Returns Ok(Some(file)) on success, Ok(None) on skip/error (reported via handle).
+fn do_one_downscale(
+    work: DownscaleWork,
+    progress_handle: &TwoQueueProgressHandle,
+    qualities: &[VideoQuality],
+    preset: Option<Preset>,
+) -> Result<Option<FileToUpload>, String> {
+    let file_to_upload = match work {
+        DownscaleWork::MxfVideo(original_path) => {
+            let def = RenditionDefinition {
+                quality: Some(qualities[0]),
+                preset,
+                crf: None,
+                audio_bitrate: None,
+            };
+            match create_rendition(&original_path, def) {
+                Ok(upload_path) => FileToUpload { upload_path, original_path },
+                Err(e) => {
+                    let _ = progress_handle.add_error(format!(
+                        "Downscale failed for {}: {}",
+                        original_path.display(),
+                        e
+                    ));
+                    return Ok(None);
+                }
+            }
+        }
+        DownscaleWork::MxfAudio(original_path) => match convert_to_mp3(&original_path, None) {
+            Ok(upload_path) => FileToUpload { upload_path, original_path },
+            Err(e) => {
+                let _ = progress_handle.add_error(format!(
+                    "MXF to MP3 failed for {}: {}",
+                    original_path.display(),
+                    e
+                ));
+                return Ok(None);
+            }
+        },
+        DownscaleWork::Video(original_path) => {
+            let def = RenditionDefinition {
+                quality: Some(qualities[0]),
+                preset,
+                crf: None,
+                audio_bitrate: None,
+            };
+            match create_rendition(&original_path, def) {
+                Ok(upload_path) => FileToUpload { upload_path, original_path },
+                Err(e) => {
+                    let _ = progress_handle.add_error(format!(
+                        "Downscale failed for {}: {}",
+                        original_path.display(),
+                        e
+                    ));
+                    return Ok(None);
+                }
+            }
+        }
+        DownscaleWork::Passthrough(original_path) => FileToUpload {
+            upload_path: original_path.clone(),
+            original_path,
+        },
+    };
+    Ok(Some(file_to_upload))
+}
+
+fn build_downscale_work(original_files: &[PathBuf]) -> Result<Vec<DownscaleWork>, String> {
+    let mut work = Vec::with_capacity(original_files.len());
+    for path in original_files {
+        if is_mxf_file(path) {
+            match has_video_streams(path) {
+                Ok(true) => work.push(DownscaleWork::MxfVideo(path.to_path_buf())),
+                Ok(false) => work.push(DownscaleWork::MxfAudio(path.to_path_buf())),
+                Err(e) => {
+                    return Err(format!(
+                        "failed to check video streams in MXF {}: {}",
+                        path.display(),
+                        e
+                    ));
+                }
+            }
+        } else if has_video_ext(path) {
+            work.push(DownscaleWork::Video(path.to_path_buf()));
+        } else {
+            work.push(DownscaleWork::Passthrough(path.to_path_buf()));
+        }
+    }
+    Ok(work)
+}
+
+fn run_two_queue_pipeline(
+    work_items: Vec<DownscaleWork>,
+    base_dir: &PathBuf,
+    args: &UploadArgs,
+    cfg: &Configuration,
+    api_key: &str,
+    bearer_opt: Option<&str>,
+    user_id: &str,
+    upload_request_id: &str,
+) -> Result<(), String> {
+    let (upload_tx, mut upload_rx) = tokio_mpsc::channel::<FileToUpload>(64);
+
+    let mut progress = TwoQueueProgress::new()?;
+    let progress_handle = progress.clone_handle();
+    progress_handle.set_downscale_queued(work_items.len());
+    let downscale_pending_names: Vec<String> =
+        work_items.iter().map(work_item_file_name).collect();
+    progress_handle.set_downscale_pending(downscale_pending_names);
+
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| format!("failed to start runtime: {}", e))?;
+
+    let base_dir = base_dir.clone();
+    let qualities = args.qualities.clone();
+    let preset = args.preset;
+
+    let cfg = cfg.clone();
+    let api_key = api_key.to_string();
+    let bearer = bearer_opt.map(String::from);
+    let base_dir_async = base_dir.clone();
+    let in_app_path = args.in_app_path.clone();
+    let user_id = user_id.to_string();
+    let upload_request_id = upload_request_id.to_string();
+    let disable_description_generation = args.disable_description_generation;
+
+    let block_result = rt.block_on(async move {
+        // Start render loop inside runtime so tokio::spawn has a current runtime
+        let render_handle = progress.start_render_loop(progress_handle.clone());
+
+        let http = Arc::new(
+            reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .map_err(|e| format!("failed to build http client: {}", e))?,
+        );
+        let bearer_header = bearer.as_deref();
+
+        let progress_producer = progress_handle.clone();
+        let upload_tx_producer = upload_tx.clone();
+        let producer = async move {
+            for w in work_items {
+                progress_producer.decrement_downscale_queued();
+                progress_producer.pop_downscale_pending();
+                let name = work_item_file_name(&w);
+                progress_producer.set_downscale_current(Some(name));
+                let ph = progress_producer.clone();
+                let qual = qualities.clone();
+                let file = tokio::task::spawn_blocking(move || do_one_downscale(w, &ph, &qual, preset))
+                    .await
+                    .map_err(|e| format!("downscale task join: {}", e))??;
+                progress_producer.set_downscale_current(None::<&str>);
+                if let Some(f) = file {
+                    progress_producer.increment_upload_queued();
+                    let upload_name = f
+                        .original_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
+                    progress_producer.push_upload_pending(upload_name);
+                    upload_tx_producer.send(f).await.map_err(|_| "upload channel closed".to_string())?;
+                }
+            }
+            drop(upload_tx_producer);
+            Ok::<(), String>(())
+        };
+        drop(upload_tx);
+
+        let consumer = async move {
+            let mut completed_responses: Vec<AssetUploadResponse> = Vec::new();
+            while let Some(file_info) = upload_rx.recv().await {
+                progress_handle.decrement_upload_queued();
+                progress_handle.pop_upload_pending();
+                let file_name = file_info
+                    .original_path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                progress_handle.set_upload_current(Some(file_name.clone()));
+
+                let (req, _upload_id, in_app_path_str) = build_single_upload_request(
+                    &file_info,
+                    &base_dir_async,
+                    &in_app_path,
+                )?;
+                let responses =
+                    request_presigned_urls(&cfg, &vec![req], &api_key, bearer_header).await?;
+                let upload_resp = responses
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| "missing presigned response".to_string())?;
+
+                if let Err(e) = upload_file_to_presigned(
+                    &file_info.upload_path,
+                    &upload_resp,
+                    http.as_ref(),
+                )
+                .await
+                {
+                    let _ = progress_handle.add_error(e.clone());
+                    progress_handle.set_upload_current(None::<&str>);
+                    return Err(e);
+                }
+
+                if let Err(e) = uploads_tracking::record_upload(
+                    &user_id,
+                    &file_info.upload_path,
+                    &in_app_path_str,
+                    &upload_resp.asset_id,
+                    &upload_request_id,
+                ) {
+                    let _ = progress_handle.add_warning(format!(
+                        "Failed to record upload in tracking file: {}",
+                        e
+                    ));
+                }
+                completed_responses.push(upload_resp);
+                progress_handle.set_upload_current(None::<&str>);
+            }
+
+            if !completed_responses.is_empty() {
+                let mut preproc_req = ProcessAssetsRequest::new(
+                    completed_responses.clone(),
+                    None::<tellers_api_client::models::VersionReference>,
+                );
+                preproc_req.generate_time_based_media_description =
+                    Some(!disable_description_generation);
+                let _ = progress_handle.add_info("Triggering preprocessing...");
+                let preproc_tasks = api::process_assets_users_assets_preprocess_post(
+                    &cfg,
+                    preproc_req,
+                    None,
+                    Some(&api_key),
+                    bearer_header,
+                )
+                .await
+                .map_err(|e| format!("failed to trigger preprocess: {}", e))?;
+                let _ = progress_handle.add_success(format!(
+                    "Preprocess tasks queued: {}",
+                    preproc_tasks.len()
+                ));
+            }
+
+            Ok(())
+        };
+
+        let ((), ()) = tokio::try_join!(producer, consumer)?;
+        Ok::<_, String>((render_handle, progress))
+    });
+
+    let (render_handle, mut progress) = block_result?;
+    rt.block_on(TwoQueueProgress::stop_render_loop(render_handle));
+    progress.finish()?;
+    println!();
+
+    Ok(())
+}
+
+fn build_single_upload_request(
+    file_info: &FileToUpload,
+    base_dir: &PathBuf,
+    in_app_path: &Option<String>,
+) -> Result<(AssetUploadRequest, String, String), String> {
+    let content_length = std::fs::metadata(&file_info.upload_path)
+        .map_err(|e| format!("failed to stat {}: {}", file_info.upload_path.display(), e))?
+        .len();
+    let upload_id = Uuid::new_v4().to_string();
+    let file_in_app_path =
+        super::utils::compute_in_app_path(&file_info.original_path, base_dir, in_app_path);
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i32;
+    let file_name_str = file_info
+        .original_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let umid = extract_media_metadata(&file_info.original_path).ok();
+    let mut source_info = SourceFileInfo::new(
+        "__user_upload__".to_string(),
+        None,
+        None,
+        vec!["__current_user__".to_string()],
+        Some(now_secs),
+        now_secs,
+        vec![file_in_app_path.clone()],
+        Some(file_name_str),
+        None,
+        vec![],
+    );
+    if let Some(metadata) = umid {
+        if let Some(umid_value) = metadata.material_package_umid {
+            source_info.capture_device_umid = Some(Some(umid_value));
+        }
+        if let Some(first_umid) = metadata.file_package_umids.first() {
+            source_info.umid = Some(Some(first_umid.clone()));
+        }
+    }
+    let req = AssetUploadRequest::new(
+        i32::try_from(content_length).unwrap_or(i32::MAX),
+        upload_id.clone(),
+        source_info,
+    );
+    Ok((req, upload_id, file_in_app_path))
 }
 
 async fn request_presigned_urls(
@@ -641,6 +872,61 @@ async fn upload_to_presigned_urls(
             .map_err(|e| format!("upload failed: {}", e))?;
     }
 
+    Ok(())
+}
+
+/// Upload file to presigned URL (no progress UI, no tracking). Used by the two-queue pipeline.
+async fn upload_file_to_presigned(
+    file_path: &PathBuf,
+    upload_resp: &AssetUploadResponse,
+    http: &reqwest::Client,
+) -> Result<(), String> {
+    let total_bytes = std::fs::metadata(file_path)
+        .map_err(|e| format!("failed to stat {}: {}", file_path.display(), e))?
+        .len();
+    let upload_url = upload_resp.presigned_put_url.clone();
+
+    let mut f = File::open(file_path)
+        .map_err(|e| format!("failed to open {}: {}", file_path.display(), e))?;
+    let mut buf = Vec::with_capacity(total_bytes as usize);
+    let mut chunk = vec![0u8; (1024 * 1024).min(total_bytes as usize)];
+    loop {
+        let n = f
+            .read(&mut chunk)
+            .map_err(|e| format!("failed to read {}: {}", file_path.display(), e))?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+    }
+
+    let content_type = mime_guess::from_path(file_path)
+        .first_or_text_plain()
+        .essence_str()
+        .to_string();
+
+    let put_res = http
+        .put(upload_url)
+        .header(reqwest::header::CONTENT_LENGTH, total_bytes)
+        .header(reqwest::header::CONTENT_TYPE, &content_type)
+        .body(buf)
+        .send()
+        .await
+        .map_err(|e| format!("upload failed for {}: {}", file_path.display(), e))?;
+
+    if !put_res.status().is_success() {
+        let status = put_res.status();
+        let body = put_res
+            .text()
+            .await
+            .unwrap_or_else(|_| "<failed to read error body>".to_string());
+        return Err(format!(
+            "Upload failed for {}: HTTP {} - {}",
+            file_path.display(),
+            status,
+            body
+        ));
+    }
     Ok(())
 }
 
