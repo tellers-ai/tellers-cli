@@ -109,12 +109,13 @@ pub fn run(args: CreateArgs) -> Result<(), String> {
             if let Some(asset_id) = asset_id {
                 output::info(format!("Associating asset {} with entity {}", asset_id, entity_id));
 
-                let asset = AssetUploadResponse::new(String::new(), asset_id.clone());
+                let asset = AssetUploadResponse::new(
+                    String::new(),
+                    String::new(),
+                    asset_id.clone(),
+                );
 
-                let process_req = ProcessEntityRequest {
-                    entity_id: entity_id.clone(),
-                    assets: vec![asset],
-                };
+                let process_req = ProcessEntityRequest::new(entity_id.clone(), vec![asset]);
 
                 let process_resp = api::process_entity_users_entity_preprocess_post(
                     &cfg,
@@ -206,25 +207,11 @@ fn upload_file_and_get_asset_id(
                 }
             }
 
-            const MULTIPART_THRESHOLD_BYTES: u64 = 10 * 1024 * 1024;
-            const MULTIPART_MIN_PART_SIZE_BYTES: i32 = 5 * 1024 * 1024;
-            const MULTIPART_MAX_PARTS: u64 = 1000;
-
-            fn multipart_part_size_for(size: u64) -> i32 {
-                let min_size = MULTIPART_MIN_PART_SIZE_BYTES as u64;
-                let size_for_1000 = (size + MULTIPART_MAX_PARTS - 1) / MULTIPART_MAX_PARTS;
-                (min_size.max(size_for_1000) as i32).max(MULTIPART_MIN_PART_SIZE_BYTES)
-            }
-
-            let mut upload_req = AssetUploadRequest::new(
-                i64::try_from(content_length).unwrap_or(i64::MAX),
+            let upload_req = AssetUploadRequest::new(
+                i32::try_from(content_length).unwrap_or(i32::MAX),
                 upload_id.clone(),
                 source_info,
             );
-            if content_length >= MULTIPART_THRESHOLD_BYTES {
-                upload_req.multipart = Some(true);
-                upload_req.multipart_part_size = Some(multipart_part_size_for(content_length));
-            }
 
             output::info(format!("Requesting presigned URL for {}", file_path.display()));
 
