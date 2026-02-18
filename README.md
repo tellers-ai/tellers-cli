@@ -51,6 +51,8 @@ tellers upload /path/to/media_folder
 - `--ext <EXT>` — Filter files by extension (e.g., `--ext mp4 --ext mov`)
 - `--in-app-path <PATH>` — Set the in-app path for uploaded files
 
+Files ≥ 10 MiB use **multipart S3 upload** (presigned part URLs, then complete); smaller files use a single presigned PUT.
+
 ## Implementation Notes
 
 - Argument parsing via Clap 4.x. See `clap` docs: [docs.rs/clap](https://docs.rs/clap/latest/clap/)
