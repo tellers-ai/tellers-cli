@@ -35,13 +35,14 @@ paths:
           type: boolean
           default: false
           title: Folder On Top
-      - name: with_public_assets
+      - name: group_name
         in: query
         required: false
         schema:
-          type: boolean
-          default: false
-          title: With Public Assets
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Group Name
       - name: x-api-key
         in: header
         required: false
@@ -69,6 +70,90 @@ paths:
                   $ref: '#/components/schemas/FileReference'
                 title: Response Request Files Processing Users Sources List Files
                   Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /users/assets/multipart/complete:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Complete Multipart Asset Upload
+      description: Complete a multipart upload. Client must supply ETags returned
+        from each part upload.
+      operationId: complete_multipart_asset_upload_users_assets_multipart_complete_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MultipartCompleteRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /users/assets/multipart/abort:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Abort Multipart Asset Upload
+      operationId: abort_multipart_asset_upload_users_assets_multipart_abort_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MultipartAbortRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
         '422':
           description: Validation Error
           content:
@@ -174,77 +259,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /users/assets/generate_description:
-    post:
-      tags:
-      - accepts-api-key
-      summary: Generate Description
-      operationId: generate_description_users_assets_generate_description_post
-      parameters:
-      - name: asset_id
-        in: query
-        required: true
-        schema:
-          type: string
-          title: Asset Id
-      - name: x-api-key
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: X-Api-Key
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                type: string
-              title: Entity Ids
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /users/entity/list:
+  /users/tasks:
     get:
       tags:
       - accepts-api-key
-      summary: List Entities
-      operationId: list_entities_users_entity_list_get
+      summary: Get Tasks
+      description: "Get pending tasks and recently finished tasks for the user.\n\n\
+        Args:\n    finish_before_seconds: Number of seconds to look back for finished\
+        \ tasks. Default is 300 (5 minutes)."
+      operationId: get_tasks_users_tasks_get
       parameters:
-      - name: offset
+      - name: finish_before_seconds
         in: query
         required: false
         schema:
           type: integer
-          default: 0
-          title: Offset
-      - name: limit
-        in: query
-        required: false
-        schema:
-          type: integer
-          default: 20
-          title: Limit
+          default: 300
+          title: Finish Before Seconds
       - name: x-api-key
         in: header
         required: false
@@ -269,69 +300,103 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/EntityResponse'
-                title: Response List Entities Users Entity List Get
+                  $ref: '#/components/schemas/TaskResponse'
+                title: Response Get Tasks Users Tasks Get
         '422':
           description: Validation Error
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /users/entity/create:
-    post:
+  /asset/most_recent:
+    get:
       tags:
       - accepts-api-key
-      summary: Create Entity
-      operationId: create_entity_users_entity_create_post
+      summary: Get Most Recent Files
+      description: 'Return the most recently added file(s) the user has read access
+        to.
+
+        Uses default group(s) unless group_id is set (user must have read access to
+        that group).
+
+        before: only files with last_edit < before (older); use the smallest last_edit
+        from a previous page to get the next page.'
+      operationId: get_most_recent_files_asset_most_recent_get
       parameters:
-      - name: x-api-key
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: X-Api-Key
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateEntityRequest'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CreateEntityResponse'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /users/entity/preprocess:
-    post:
-      tags:
-      - accepts-api-key
-      summary: Process Entity
-      operationId: process_entity_users_entity_preprocess_post
-      parameters:
-      - name: priority
+      - name: path
         in: query
         required: false
         schema:
-          $ref: '#/components/schemas/TaskPriority'
-          default: highest
+          type: string
+          default: /
+          title: Path
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+          title: Limit
+      - name: group_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Group Id
+      - name: before
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Before
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FileReference'
+                title: Response Get Most Recent Files Asset Most Recent Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /asset/folder:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Create Folder
+      description: 'Create a folder at the given path. Ensures the folder and all
+        ancestor folders exist for the user''s default group.
+
+        Callable with API key (X-Api-Key header) or Bearer token.'
+      operationId: create_folder_asset_folder_post
+      parameters:
       - name: x-api-key
         in: header
         required: false
@@ -353,14 +418,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ProcessEntityRequest'
+              $ref: '#/components/schemas/CreateFolderRequest'
       responses:
-        '200':
+        '201':
           description: Successful Response
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RequestTaskResponse'
+                $ref: '#/components/schemas/CreateFolderResponse'
         '422':
           description: Validation Error
           content:
@@ -615,6 +680,134 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /agent/chat/{chat_id}:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Get Chat Info
+      operationId: get_chat_info_agent_chat__chat_id__get
+      parameters:
+      - name: chat_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Chat Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatHistoryResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - accepts-api-key
+      summary: Delete Chat
+      operationId: delete_chat_agent_chat__chat_id__delete
+      parameters:
+      - name: chat_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Chat Id
+      - name: cancel_running
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Cancel Running
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /agent/chat/{chat_id}/rename:
+    patch:
+      tags:
+      - accepts-api-key
+      summary: Rename Chat
+      operationId: rename_chat_agent_chat__chat_id__rename_patch
+      parameters:
+      - name: chat_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Chat Id
+      - name: name
+        in: query
+        required: true
+        schema:
+          type: string
+          title: Name
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /agent/chat/{chat_id}/messages:
     get:
       tags:
@@ -766,6 +959,131 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /group/update:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Update Group
+      operationId: update_group_group_update_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateGroupRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /group/users/add:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Add Group Users
+      operationId: add_group_users_group_users_add_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupUsersRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupUsersResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /group/users/remove:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Remove Group Users
+      operationId: remove_group_users_group_users_remove_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GroupUsersRemoveRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupUsersResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AgentMessageRequest:
@@ -801,10 +1119,12 @@ components:
           anyOf:
           - type: string
             enum:
+            - none
             - minimal
             - low
             - medium
             - high
+            - xhigh
           - type: 'null'
           title: Llm Reasoning Effort
           description: 'Controls reasoning effort: higher values yield more precise
@@ -834,6 +1154,13 @@ components:
           title: Custom Agent Id
           description: The ID of the custom agent to use to generate the response.
             If not provided, the default custom agent will be used.
+        parallel_tool_calls:
+          type: boolean
+          title: Parallel Tool Calls
+          description: Whether to allow parallel tool calls. If True, the tool calls
+            will be executed in parallel. If False, the tool calls will be executed
+            sequentially.
+          default: false
       additionalProperties: false
       type: object
       required:
@@ -898,6 +1225,22 @@ components:
           title: Upload Id
         source_file:
           $ref: '#/components/schemas/SourceFileInfo'
+        file_type:
+          $ref: '#/components/schemas/FileType'
+          default: video
+        multipart:
+          type: boolean
+          title: Multipart
+          description: If true, returns presigned multipart upload URLs instead of
+            a single PUT URL.
+          default: false
+        multipart_part_size:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Multipart Part Size
+          description: Optional multipart part size in bytes (min 5 MiB). If omitted,
+            a default is used.
       type: object
       required:
       - content_length
@@ -909,16 +1252,37 @@ components:
         upload_id:
           type: string
           title: Upload Id
-        presigned_put_url:
-          type: string
-          title: Presigned Put Url
         asset_id:
           type: string
           title: Asset Id
+        presigned_put_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Presigned Put Url
+        presigned_put_urls:
+          items:
+            type: string
+          type: array
+          title: Presigned Put Urls
+        multipart_upload_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Multipart Upload Id
+        multipart_part_size:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Multipart Part Size
+        multipart_part_count:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Multipart Part Count
       type: object
       required:
       - upload_id
-      - presigned_put_url
       - asset_id
       title: AssetUploadResponse
     ChatHistoryResponse:
@@ -942,6 +1306,12 @@ components:
           - type: string
           - type: 'null'
           title: Custom Agent Id
+        total_tokens:
+          type: number
+          title: Total Tokens
+        is_running:
+          type: boolean
+          title: Is Running
       type: object
       required:
       - id
@@ -949,6 +1319,8 @@ components:
       - created_at
       - updated_at
       - custom_agent_id
+      - total_tokens
+      - is_running
       title: ChatHistoryResponse
     ChatMessageAgentResponse:
       properties:
@@ -1016,32 +1388,24 @@ components:
       - context
       - created_at
       title: ChatMessageUserResponse
-    CreateEntityRequest:
+    CreateFolderRequest:
       properties:
-        group_id:
+        path:
           type: string
-          title: Group Id
-        name:
-          type: string
-          title: Name
-        description:
-          type: string
-          title: Description
+          title: Path
       type: object
       required:
-      - group_id
-      - name
-      - description
-      title: CreateEntityRequest
-    CreateEntityResponse:
+      - path
+      title: CreateFolderRequest
+    CreateFolderResponse:
       properties:
-        entity_id:
+        path:
           type: string
-          title: Entity Id
+          title: Path
       type: object
       required:
-      - entity_id
-      title: CreateEntityResponse
+      - path
+      title: CreateFolderResponse
     CreateGroupRequest:
       properties:
         name:
@@ -1060,27 +1424,6 @@ components:
       required:
       - id
       title: CreateGroupResponse
-    EntityResponse:
-      properties:
-        id:
-          type: string
-          title: Id
-        name:
-          type: string
-          title: Name
-        description:
-          type: string
-          title: Description
-        group_id:
-          type: string
-          title: Group Id
-      type: object
-      required:
-      - id
-      - name
-      - description
-      - group_id
-      title: EntityResponse
     FileReference:
       properties:
         file_name:
@@ -1104,13 +1447,31 @@ components:
           - type: number
           - type: 'null'
           title: Duration Seconds
+        last_edit:
+          type: string
+          format: date-time
+          title: Last Edit
       type: object
       required:
       - file_name
       - is_folder
       - file_id
       - file_type
+      - last_edit
       title: FileReference
+    FileType:
+      type: string
+      enum:
+      - video
+      - audio
+      - image
+      - placeholder
+      - group_clip
+      - folder
+      - project
+      - entity
+      - teller_config
+      title: FileType
     GroupResponse:
       properties:
         id:
@@ -1124,6 +1485,75 @@ components:
       - id
       - name
       title: GroupResponse
+    GroupRights:
+      type: string
+      enum:
+      - ADMIN
+      - READ
+      - WRITE
+      title: GroupRights
+    GroupUsersRemoveRequest:
+      properties:
+        group_id:
+          type: string
+          title: Group Id
+        user_ids:
+          items:
+            type: string
+          type: array
+          title: User Ids
+          default: []
+        emails:
+          items:
+            type: string
+          type: array
+          title: Emails
+          default: []
+      type: object
+      required:
+      - group_id
+      title: GroupUsersRemoveRequest
+    GroupUsersRequest:
+      properties:
+        group_id:
+          type: string
+          title: Group Id
+        user_ids:
+          items:
+            type: string
+          type: array
+          title: User Ids
+          default: []
+        emails:
+          items:
+            type: string
+          type: array
+          title: Emails
+          default: []
+        right:
+          $ref: '#/components/schemas/GroupRights'
+          default: READ
+      type: object
+      required:
+      - group_id
+      title: GroupUsersRequest
+    GroupUsersResponse:
+      properties:
+        user_ids:
+          items:
+            type: string
+          type: array
+          title: User Ids
+        not_found:
+          items:
+            type: string
+          type: array
+          title: Not Found
+      type: object
+      required:
+      - user_ids
+      - not_found
+      title: GroupUsersResponse
     HTTPValidationError:
       properties:
         detail:
@@ -1133,6 +1563,51 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    MultipartAbortRequest:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        multipart_upload_id:
+          type: string
+          title: Multipart Upload Id
+      type: object
+      required:
+      - asset_id
+      - multipart_upload_id
+      title: MultipartAbortRequest
+    MultipartCompletePart:
+      properties:
+        part_number:
+          type: integer
+          title: Part Number
+        etag:
+          type: string
+          title: Etag
+      type: object
+      required:
+      - part_number
+      - etag
+      title: MultipartCompletePart
+    MultipartCompleteRequest:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        multipart_upload_id:
+          type: string
+          title: Multipart Upload Id
+        parts:
+          items:
+            $ref: '#/components/schemas/MultipartCompletePart'
+          type: array
+          title: Parts
+      type: object
+      required:
+      - asset_id
+      - multipart_upload_id
+      - parts
+      title: MultipartCompleteRequest
     ProcessAssetsRequest:
       properties:
         assets:
@@ -1152,26 +1627,18 @@ components:
           type: boolean
           title: Generate Time Based Media Description
           default: false
+        override_entity_ids:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Override Entity Ids
       type: object
       required:
       - assets
       - version
       title: ProcessAssetsRequest
-    ProcessEntityRequest:
-      properties:
-        entity_id:
-          type: string
-          title: Entity Id
-        assets:
-          items:
-            $ref: '#/components/schemas/AssetUploadResponse'
-          type: array
-          title: Assets
-      type: object
-      required:
-      - entity_id
-      - assets
-      title: ProcessEntityRequest
     RequestTaskResponse:
       properties:
         task_id:
@@ -1298,6 +1765,72 @@ components:
       - lowest
       title: TaskPriority
       description: Task priority is used to prioritize tasks in the queue.
+    TaskResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+        task_type:
+          type: string
+          title: Task Type
+        status:
+          type: string
+          title: Status
+        progress:
+          type: number
+          title: Progress
+        asset_ids:
+          items:
+            type: string
+          type: array
+          title: Asset Ids
+        created_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Created At
+        ended_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Ended At
+        error_message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Message
+      type: object
+      required:
+      - id
+      - task_type
+      - status
+      - progress
+      - asset_ids
+      - created_at
+      - ended_at
+      - error_message
+      title: TaskResponse
+    UpdateGroupRequest:
+      properties:
+        group_id:
+          type: string
+          title: Group Id
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        is_public_read_access:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Public Read Access
+      type: object
+      required:
+      - group_id
+      title: UpdateGroupRequest
     UseAgentToolRequest:
       properties:
         tool_id:

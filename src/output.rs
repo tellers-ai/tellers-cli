@@ -3,8 +3,10 @@ use crossterm::terminal;
 
 static INFO_ICON: Emoji<'_, '_> = Emoji("ℹ ", "");
 static WARNING_ICON: Emoji<'_, '_> = Emoji("⚠ ", "");
+#[allow(dead_code)]
 static ERROR_ICON: Emoji<'_, '_> = Emoji("✗ ", "");
 static SUCCESS_ICON: Emoji<'_, '_> = Emoji("✓ ", "");
+#[allow(dead_code)]
 static ARROW: Emoji<'_, '_> = Emoji("→ ", "");
 
 const DEFAULT_MAX_WIDTH: usize = 120;
@@ -43,6 +45,7 @@ pub fn warning(msg: impl std::fmt::Display) {
     println!("{} {}", style(WARNING_ICON).yellow(), style(formatted).yellow());
 }
 
+#[allow(dead_code)]
 pub fn error(msg: impl std::fmt::Display) {
     let formatted = format_message(&msg);
     log::error!("{}", msg);
@@ -55,6 +58,7 @@ pub fn success(msg: impl std::fmt::Display) {
     println!("{} {}", style(SUCCESS_ICON).green(), style(formatted).green().bold());
 }
 
+#[allow(dead_code)]
 pub fn step(msg: impl std::fmt::Display) {
     let formatted = format_message(&msg);
     log::info!("→ {}", msg);
@@ -73,14 +77,16 @@ pub fn item(msg: impl std::fmt::Display) {
     println!("  {}", formatted);
 }
 
+#[allow(dead_code)]
 pub fn debug(msg: impl std::fmt::Display) {
-    let formatted = format_message(&msg);
+    let _formatted = format_message(&msg);
     log::debug!("{}", msg);
     // Debug messages not printed to terminal by default
 }
 
+#[allow(dead_code)]
 pub fn trace(msg: impl std::fmt::Display) {
-    let formatted = format_message(&msg);
+    let _formatted = format_message(&msg);
     log::trace!("{}", msg);
     // Trace messages not printed to terminal by default
 }
