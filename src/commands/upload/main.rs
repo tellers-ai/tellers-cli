@@ -1,4 +1,4 @@
-use clap::Args;
+use clap::{Args, Subcommand};
 use regex::Regex;
 use std::collections::HashMap;
 use std::fs::File;
@@ -34,6 +34,31 @@ use tellers_api_client::models::{
 
 #[derive(Args, Debug)]
 pub struct UploadArgs {
+    #[command(subcommand)]
+    pub command: UploadCommand,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum UploadCommand {
+    /// Upload files from a path
+    Upload(UploadCmdArgs),
+    /// Recreate filesystem from a path
+    RecreateFilesystem(RecreateFilesystemArgs),
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct RecreateFilesystemArgs {
+    #[arg(long)]
+    pub in_app_path: Option<String>,
+
+    #[arg(long, default_value_t = false)]
+    pub dry_run: bool,
+
+    pub path: String,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct UploadCmdArgs {
     #[arg(long, default_value_t = false)]
     pub local_encoding: bool,
 
@@ -109,6 +134,18 @@ fn matches_regex(file_path: &PathBuf, regex_patterns: &[Regex]) -> bool {
 }
 
 pub fn run(args: UploadArgs) -> Result<(), String> {
+    match args.command {
+        UploadCommand::Upload(cmd_args) => run_upload(cmd_args),
+        UploadCommand::RecreateFilesystem(cmd_args) => run_recreate_filesystem(cmd_args),
+    }
+}
+
+fn run_recreate_filesystem(_args: RecreateFilesystemArgs) -> Result<(), String> {
+    // TODO: implement recreate filesystem API call
+    Ok(())
+}
+
+fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
     let base_dir = PathBuf::from(&args.path);
     if !base_dir.exists() {
         return Err(format!("path not found: {}", base_dir.display()));
@@ -526,7 +563,7 @@ fn build_downscale_work(original_files: &[PathBuf]) -> Result<Vec<DownscaleWork>
 fn run_two_queue_pipeline(
     work_items: Vec<DownscaleWork>,
     base_dir: &PathBuf,
-    args: &UploadArgs,
+    args: &UploadCmdArgs,
     cfg: &Configuration,
     api_key: &str,
     bearer_opt: Option<&str>,
@@ -911,7 +948,10 @@ async fn upload_to_presigned_urls(
 }
 
 fn single_put_url(resp: &AssetUploadResponse) -> String {
-    resp.presigned_put_url.clone()
+    resp.presigned_put_url
+        .clone()
+        .flatten()
+        .unwrap_or_else(String::new)
 }
 
 pub async fn upload_file_to_presigned(

@@ -25,34 +25,12 @@ fn main() {
                         std::process::exit(1);
                     }
                 }
-                commands::asset::AssetCommand::Preprocess(preprocess_args) => {
-                    if let Err(error) = commands::asset::preprocess_run(preprocess_args) {
-                        eprintln!("error: {}", error);
-                        std::process::exit(1);
-                    }
-                }
-            }
-        }
-        Some(cli::Command::Entity(entity_args)) => {
-            match entity_args.command {
-                commands::entity::EntityCommand::Create(create_args) => {
-                    if let Err(error) = commands::entity::create_run(create_args) {
-                        eprintln!("error: {}", error);
-                        std::process::exit(1);
-                    }
-                }
             }
         }
         Some(cli::Command::Group(group_args)) => {
             match group_args.command {
                 commands::group::GroupCommand::List(list_args) => {
                     if let Err(error) = commands::group::list_run(list_args) {
-                        eprintln!("error: {}", error);
-                        std::process::exit(1);
-                    }
-                }
-                commands::group::GroupCommand::Create(create_args) => {
-                    if let Err(error) = commands::group::create_run(create_args) {
                         eprintln!("error: {}", error);
                         std::process::exit(1);
                     }

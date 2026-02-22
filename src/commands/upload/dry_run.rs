@@ -186,7 +186,7 @@ pub fn run_dry_run(
             }
         }
 
-        let elapsed = task_start.elapsed();
+        let _elapsed = task_start.elapsed();
         let _ = progress_handle.finish_task(i, true);
     }
 

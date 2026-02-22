@@ -79,6 +79,7 @@ impl Logger {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn get_log_path() -> Option<PathBuf> {
         LOGGER.inner.lock().unwrap().log_path.clone()
     }
@@ -141,6 +142,7 @@ pub fn init() -> Result<(), String> {
 ///
 /// Returns `Some(PathBuf)` with the path to the log file if the logger is initialized,
 /// or `None` if not yet initialized.
+#[allow(dead_code)]
 pub fn get_log_path() -> Option<PathBuf> {
     Logger::get_log_path()
 }

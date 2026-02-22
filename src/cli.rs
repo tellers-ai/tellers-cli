@@ -1,7 +1,6 @@
 use clap::{Parser, Subcommand};
 
 use crate::commands::asset::AssetArgs;
-use crate::commands::entity::EntityArgs;
 use crate::commands::group::GroupArgs;
 use crate::commands::upload::UploadArgs;
 
@@ -24,7 +23,6 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     Asset(AssetArgs),
-    Entity(EntityArgs),
     Group(GroupArgs),
     Upload(UploadArgs),
 }
