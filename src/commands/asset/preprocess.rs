@@ -30,13 +30,7 @@ pub fn run(args: PreprocessArgs) -> Result<(), String> {
             let assets: Vec<AssetUploadResponse> = args
                 .ids
                 .into_iter()
-                .map(|asset_id| {
-                    AssetUploadResponse::new(
-                        String::new(),
-                        String::new(),
-                        asset_id,
-                    )
-                })
+                .map(|asset_id| AssetUploadResponse::new(String::new(), String::new(), asset_id))
                 .collect();
 
             let mut preproc_req = ProcessAssetsRequest::new(

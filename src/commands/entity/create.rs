@@ -1,6 +1,4 @@
 use clap::Args;
-use std::fs::File;
-use std::io::Read;
 use std::path::PathBuf;
 use tellers_api_client::apis::accepts_api_key_api as api;
 use tellers_api_client::models::{
@@ -112,8 +110,8 @@ pub fn run(args: CreateArgs) -> Result<(), String> {
                 output::info(format!("Associating asset {} with entity {}", asset_id, entity_id));
 
                 let asset = AssetUploadResponse::new(
-                    "".to_string(),
-                    "".to_string(),
+                    String::new(),
+                    String::new(),
                     asset_id.clone(),
                 );
 
@@ -248,64 +246,28 @@ fn upload_file_and_get_asset_id(
             }
 
             let upload_resp = responses.remove(0);
-            let upload_url = upload_resp.presigned_put_url.clone();
             let asset_id = upload_resp.asset_id.clone();
 
             output::info(format!("Uploading file to presigned URL..."));
-
-            let mut f = File::open(file_path)
-                .map_err(|e| format!("failed to open {}: {}", file_path.display(), e))?;
-            let mut buf = Vec::with_capacity(content_length as usize);
-
-            const CHUNK_SIZE: usize = 1024 * 1024;
-            let mut chunk = vec![0u8; CHUNK_SIZE.min(content_length as usize)];
-
-            loop {
-                let n = f
-                    .read(&mut chunk)
-                    .map_err(|e| format!("failed to read {}: {}", file_path.display(), e))?;
-                if n == 0 {
-                    break;
-                }
-                buf.extend_from_slice(&chunk[..n]);
-            }
-
-            let content_type = mime_guess::from_path(file_path)
-                .first_or_text_plain()
-                .essence_str()
-                .to_string();
 
             let http = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(60))
                 .build()
                 .map_err(|e| format!("failed to build http client: {}", e))?;
 
-            let put_res = http
-                .put(upload_url)
-                .header(reqwest::header::CONTENT_LENGTH, content_length)
-                .header(reqwest::header::CONTENT_TYPE, &content_type)
-                .body(buf)
-                .send()
-                .await
-                .map_err(|e| format!("upload failed for {}: {}", file_path.display(), e))?;
-
-            if !put_res.status().is_success() {
-                let status = put_res.status();
-                let body = put_res
-                    .text()
-                    .await
-                    .unwrap_or_else(|_| "<failed to read error body>".to_string());
-                return Err(format!(
-                    "Upload failed for {}: HTTP {} - {}",
-                    file_path.display(),
-                    status,
-                    body
-                ));
-            }
+            crate::commands::upload::upload_file_to_presigned(
+                file_path,
+                &upload_resp,
+                &http,
+                cfg,
+                api_key,
+                bearer_header,
+            )
+            .await?;
 
             if let Err(e) = uploads_tracking::record_upload(
                 user_id,
-                file_path,
+                file_path.as_path(),
                 &in_app_path,
                 &asset_id,
                 &upload_request_id,

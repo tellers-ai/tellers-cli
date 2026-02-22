@@ -366,6 +366,9 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
                 &user_id,
                 args.parallel_uploads,
                 &progress_handle,
+                &cfg,
+                &api_key,
+                bearer_header.as_deref(),
             )
             .await;
 
@@ -627,6 +630,9 @@ fn run_two_queue_pipeline(
                     &file_info.upload_path,
                     &upload_resp,
                     http.as_ref(),
+                    &cfg,
+                    &api_key,
+                    bearer_header,
                 )
                 .await
                 {
@@ -637,7 +643,7 @@ fn run_two_queue_pipeline(
 
                 if let Err(e) = uploads_tracking::record_upload(
                     &user_id,
-                    &file_info.upload_path,
+                    file_info.upload_path.as_path(),
                     &in_app_path_str,
                     &upload_resp.asset_id,
                     &upload_request_id,
@@ -818,6 +824,9 @@ async fn upload_to_presigned_urls(
     user_id: &str,
     max_concurrent: usize,
     progress_handle: &ProgressHandle,
+    cfg: &Configuration,
+    api_key: &str,
+    bearer_opt: Option<&str>,
 ) -> Result<(), String> {
     let http = Arc::new(
         reqwest::Client::builder()
@@ -828,6 +837,9 @@ async fn upload_to_presigned_urls(
 
     let semaphore = Arc::new(Semaphore::new(max_concurrent));
     let mut upload_tasks = Vec::new();
+    let cfg = cfg.clone();
+    let api_key = api_key.to_string();
+    let bearer_opt = bearer_opt.map(String::from);
 
     for (i, file_path) in files.iter().enumerate() {
         let file_path = file_path.clone();
@@ -843,6 +855,9 @@ async fn upload_to_presigned_urls(
         let user_id = user_id.to_string();
         let upload_request_id = upload_request_id.to_string();
         let task_id = i;
+        let cfg_clone = cfg.clone();
+        let api_key_clone = api_key.clone();
+        let bearer_clone = bearer_opt.clone();
 
         let file_name = file_path
             .file_name()
@@ -872,6 +887,9 @@ async fn upload_to_presigned_urls(
                 &http_clone,
                 &progress_handle_clone,
                 file_size,
+                &cfg_clone,
+                &api_key_clone,
+                bearer_clone.as_deref(),
             )
             .await;
 
@@ -892,15 +910,22 @@ async fn upload_to_presigned_urls(
     Ok(())
 }
 
-async fn upload_file_to_presigned(
+fn single_put_url(resp: &AssetUploadResponse) -> String {
+    resp.presigned_put_url.clone()
+}
+
+pub async fn upload_file_to_presigned(
     file_path: &PathBuf,
     upload_resp: &AssetUploadResponse,
     http: &reqwest::Client,
+    _cfg: &Configuration,
+    _api_key: &str,
+    _bearer_opt: Option<&str>,
 ) -> Result<(), String> {
     let total_bytes = std::fs::metadata(file_path)
         .map_err(|e| format!("failed to stat {}: {}", file_path.display(), e))?
         .len();
-    let upload_url = upload_resp.presigned_put_url.clone();
+    let upload_url = single_put_url(upload_resp);
 
     let mut f = File::open(file_path)
         .map_err(|e| format!("failed to open {}: {}", file_path.display(), e))?;
@@ -922,7 +947,7 @@ async fn upload_file_to_presigned(
         .to_string();
 
     let put_res = http
-        .put(upload_url)
+        .put(upload_url.as_str())
         .header(reqwest::header::CONTENT_LENGTH, total_bytes)
         .header(reqwest::header::CONTENT_TYPE, &content_type)
         .body(buf)
@@ -957,64 +982,67 @@ async fn upload_single_file(
     http: &reqwest::Client,
     progress_handle: &ProgressHandle,
     total_bytes: u64,
+    _cfg: &Configuration,
+    _api_key: &str,
+    _bearer_opt: Option<&str>,
 ) -> Result<(), String> {
-    let upload_url = upload_resp.presigned_put_url.clone();
+    let upload_url = single_put_url(upload_resp);
 
     let mut f = File::open(file_path)
         .map_err(|e| format!("failed to open {}: {}", file_path.display(), e))?;
-    let mut buf = Vec::with_capacity(total_bytes as usize);
+        let mut buf = Vec::with_capacity(total_bytes as usize);
 
-    const CHUNK_SIZE: usize = 1024 * 1024; // 1MB chunks
-    let mut uploaded = 0u64;
-    let mut chunk = vec![0u8; CHUNK_SIZE.min(total_bytes as usize)];
+        const CHUNK_SIZE: usize = 1024 * 1024; // 1MB chunks
+        let mut uploaded = 0u64;
+        let mut chunk = vec![0u8; CHUNK_SIZE.min(total_bytes as usize)];
 
-    loop {
-        let n = f
-            .read(&mut chunk)
-            .map_err(|e| format!("failed to read {}: {}", file_path.display(), e))?;
-        if n == 0 {
-            break;
+        loop {
+            let n = f
+                .read(&mut chunk)
+                .map_err(|e| format!("failed to read {}: {}", file_path.display(), e))?;
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            uploaded += n as u64;
+            let _ = progress_handle.update_task(task_id, uploaded);
         }
-        buf.extend_from_slice(&chunk[..n]);
-        uploaded += n as u64;
-        let _ = progress_handle.update_task(task_id, uploaded);
-    }
 
-    let content_type = mime_guess::from_path(file_path)
-        .first_or_text_plain()
-        .essence_str()
-        .to_string();
+        let content_type = mime_guess::from_path(file_path)
+            .first_or_text_plain()
+            .essence_str()
+            .to_string();
 
-    let put_res = http
-        .put(upload_url)
-        .header(reqwest::header::CONTENT_LENGTH, total_bytes)
-        .header(reqwest::header::CONTENT_TYPE, &content_type)
-        .body(buf)
-        .send()
-        .await
-        .map_err(|e| format!("upload failed for {}: {}", file_path.display(), e))?;
-
-    let _ = progress_handle.update_task(task_id, total_bytes);
-
-    if !put_res.status().is_success() {
-        let status = put_res.status();
-        let body = put_res
-            .text()
+        let put_res = http
+            .put(upload_url.as_str())
+            .header(reqwest::header::CONTENT_LENGTH, total_bytes)
+            .header(reqwest::header::CONTENT_TYPE, &content_type)
+            .body(buf)
+            .send()
             .await
-            .unwrap_or_else(|_| "<failed to read error body>".to_string());
-        let error_msg = format!(
-            "Upload failed for {}: HTTP {} - {}",
-            file_path.display(),
-            status,
-            body
-        );
-        let _ = progress_handle.add_error(error_msg.clone());
-        return Err(error_msg);
-    }
+            .map_err(|e| format!("upload failed for {}: {}", file_path.display(), e))?;
+
+        let _ = progress_handle.update_task(task_id, total_bytes);
+
+        if !put_res.status().is_success() {
+            let status = put_res.status();
+            let body = put_res
+                .text()
+                .await
+                .unwrap_or_else(|_| "<failed to read error body>".to_string());
+            let error_msg = format!(
+                "Upload failed for {}: HTTP {} - {}",
+                file_path.display(),
+                status,
+                body
+            );
+            let _ = progress_handle.add_error(error_msg.clone());
+            return Err(error_msg);
+        }
 
     if let Err(e) = uploads_tracking::record_upload(
         user_id,
-        file_path,
+        file_path.as_path(),
         in_app_path,
         &upload_resp.asset_id,
         upload_request_id,
