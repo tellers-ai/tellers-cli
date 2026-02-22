@@ -29,7 +29,8 @@ use tokio::sync::mpsc as tokio_mpsc;
 use tellers_api_client::apis::accepts_api_key_api as api;
 use tellers_api_client::apis::configuration::Configuration;
 use tellers_api_client::models::{
-    AssetUploadRequest, AssetUploadResponse, ProcessAssetsRequest, SourceFileInfo,
+    AssetUploadRequest, AssetUploadResponse, CreateFolderRequest, ProcessAssetsRequest,
+    SourceFileInfo,
 };
 
 #[derive(Args, Debug)]
@@ -140,8 +141,99 @@ pub fn run(args: UploadArgs) -> Result<(), String> {
     }
 }
 
-fn run_recreate_filesystem(_args: RecreateFilesystemArgs) -> Result<(), String> {
-    // TODO: implement recreate filesystem API call
+fn run_recreate_filesystem(args: RecreateFilesystemArgs) -> Result<(), String> {
+    let base_dir = PathBuf::from(&args.path);
+    if !base_dir.exists() {
+        return Err(format!("path not found: {}", base_dir.display()));
+    }
+    if base_dir.is_file() {
+        return Err("path must be a directory".to_string());
+    }
+
+    // Collect all directories (root and every subfolder), with relative path for in-app mapping.
+    // By default exclude any path that has a segment starting with '.' (e.g. .git, .fingerprint).
+    let base_dir = base_dir.canonicalize().map_err(|e| format!("{}", e))?;
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for entry in WalkDir::new(&base_dir).into_iter().filter_map(Result::ok) {
+        if entry.file_type().is_dir() {
+            let p = entry.path();
+            let rel = match p.strip_prefix(&base_dir) {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let has_dot_component = rel.components().any(|c| {
+                c.as_os_str()
+                    .to_str()
+                    .map(|s| s.starts_with('.'))
+                    .unwrap_or(false)
+            });
+            if !has_dot_component {
+                dirs.push(p.to_path_buf());
+            }
+        }
+    }
+
+    // Build in-app path for each dir: in_app_path + relative_path, or relative path only
+    let mut in_app_paths: Vec<String> = dirs
+        .iter()
+        .map(|p| {
+            let rel = p
+                .strip_prefix(&base_dir)
+                .unwrap_or(p)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let rel_trimmed = rel.trim_start_matches('/');
+            match &args.in_app_path {
+                Some(prefix) => {
+                    let prefix = prefix.trim_end_matches('/');
+                    if rel_trimmed.is_empty() {
+                        prefix.to_string()
+                    } else {
+                        format!("{}/{}", prefix, rel_trimmed)
+                    }
+                }
+                None => {
+                    if rel_trimmed.is_empty() {
+                        ".".to_string()
+                    } else {
+                        rel_trimmed.to_string()
+                    }
+                }
+            }
+        })
+        .collect();
+
+    // Don't create a folder named "." on the server when root maps to it
+    in_app_paths.retain(|p| p != ".");
+
+    // Sort by path depth so parents are created before children
+    in_app_paths.sort_by_key(|p| p.matches('/').count());
+
+    if args.dry_run {
+        for p in &in_app_paths {
+            output::info(format!("[dry run] would create folder: {}", p));
+        }
+        return Ok(());
+    }
+
+    let cfg = api_config::create_config();
+    let api_key = api_config::get_api_key(None)?;
+    let bearer_header = api_config::get_bearer_header(None);
+
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| format!("failed to start runtime: {}", e))?;
+
+    for folder_path in in_app_paths {
+        let req = CreateFolderRequest::new(folder_path.clone());
+        let response = rt.block_on(api::create_folder_asset_folder_post(
+            &cfg,
+            req,
+            Some(api_key.as_str()),
+            bearer_header.as_deref(),
+        ))
+        .map_err(|e| e.to_string())?;
+        println!("{}", response.path);
+    }
     Ok(())
 }
 
