@@ -22,9 +22,11 @@ const PENDING_DISPLAY: usize = 5;
 pub(crate) struct TwoQueueState {
     pub downscale_queued: usize,
     pub downscale_current: Option<String>,
+    pub downscale_current_pct: Option<f64>,
     pub downscale_pending: Vec<String>,
     pub upload_queued: usize,
     pub upload_current: Option<String>,
+    pub upload_current_pct: Option<f64>,
     pub upload_pending: Vec<String>,
     pub recent_messages: Vec<Message>,
     pub max_messages: usize,
@@ -37,7 +39,12 @@ impl TwoQueueState {
             .as_deref()
             .unwrap_or("—")
             .to_string();
-        truncate_string(&current, 35)
+        let s = truncate_string(&current, 35);
+        if let Some(pct) = self.downscale_current_pct {
+            format!("{} ({:.0}%)", s, pct)
+        } else {
+            s
+        }
     }
 
     fn upload_display(&self) -> String {
@@ -46,7 +53,12 @@ impl TwoQueueState {
             .as_deref()
             .unwrap_or("—")
             .to_string();
-        truncate_string(&current, 35)
+        let s = truncate_string(&current, 35);
+        if let Some(pct) = self.upload_current_pct {
+            format!("{} ({:.0}%)", s, pct)
+        } else {
+            s
+        }
     }
 
     fn downscale_pending_next(&self) -> impl Iterator<Item = &str> {
@@ -76,7 +88,7 @@ impl TwoQueueProgress {
         Ok(Self {
             terminal: RefCell::new(Some(terminal)),
             state: Arc::new(Mutex::new(TwoQueueState {
-                max_messages: 5,
+                max_messages: 100,
                 ..Default::default()
             })),
         })
@@ -133,6 +145,19 @@ impl TwoQueueProgress {
         }
         Ok(())
     }
+
+    /// Print all error and warning messages to stderr so the user has a persistent log
+    /// after the TUI is closed. Call this after `finish()` when the run is done.
+    pub fn print_messages_to_stderr(&self) {
+        let state = self.state.lock().unwrap();
+        for msg in state.recent_messages.iter().rev() {
+            match msg.msg_type {
+                MessageType::Error => eprintln!("Error: {}", msg.text),
+                MessageType::Warning => eprintln!("Warning: {}", msg.text),
+                _ => {}
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -154,6 +179,12 @@ impl TwoQueueProgressHandle {
     pub fn set_downscale_current(&self, label: Option<impl Into<String>>) {
         let mut s = self.state.lock().unwrap();
         s.downscale_current = label.map(Into::into);
+        s.downscale_current_pct = None;
+    }
+
+    pub fn set_downscale_current_pct(&self, pct: Option<f64>) {
+        let mut s = self.state.lock().unwrap();
+        s.downscale_current_pct = pct;
     }
 
     pub fn set_downscale_pending(&self, names: Vec<String>) {
@@ -181,6 +212,12 @@ impl TwoQueueProgressHandle {
     pub fn set_upload_current(&self, label: Option<impl Into<String>>) {
         let mut s = self.state.lock().unwrap();
         s.upload_current = label.map(Into::into);
+        s.upload_current_pct = None;
+    }
+
+    pub fn set_upload_current_pct(&self, pct: Option<f64>) {
+        let mut s = self.state.lock().unwrap();
+        s.upload_current_pct = pct;
     }
 
     /// Add a file name to the upload pending list (when enqueueing an upload).
