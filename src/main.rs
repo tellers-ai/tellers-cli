@@ -27,16 +27,6 @@ fn main() {
                 }
             }
         }
-        Some(cli::Command::Group(group_args)) => {
-            match group_args.command {
-                commands::group::GroupCommand::List(list_args) => {
-                    if let Err(error) = commands::group::list_run(list_args) {
-                        eprintln!("error: {}", error);
-                        std::process::exit(1);
-                    }
-                }
-            }
-        }
         Some(cli::Command::Upload(upload_args)) => {
             if let Err(error) = commands::upload::run(upload_args) {
                 eprintln!("error: {}", error);

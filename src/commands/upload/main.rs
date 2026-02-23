@@ -393,6 +393,7 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
     }
 
     let mut requests: Vec<AssetUploadRequest> = Vec::with_capacity(files_to_upload.len());
+    let mut related_umids_per_file: Vec<Vec<String>> = Vec::with_capacity(files_to_upload.len());
     let mut file_upload_ids: Vec<String> = Vec::with_capacity(files_to_upload.len());
     let mut file_in_app_paths: Vec<String> = Vec::with_capacity(files_to_upload.len());
     let mut upload_paths: Vec<PathBuf> = Vec::with_capacity(files_to_upload.len());
@@ -445,14 +446,18 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
             vec![],
         );
 
-        if let Some(metadata) = umid {
-            if let Some(umid_value) = metadata.material_package_umid {
-                source_info.capture_device_umid = Some(Some(umid_value));
+        if let Some(metadata) = umid.as_ref() {
+            if let Some(umid_value) = metadata.material_package_umid.as_ref() {
+                source_info.capture_device_umid = Some(Some(umid_value.clone()));
             }
-            if let Some(first_umid) = metadata.file_package_umids.first() {
-                source_info.umid = Some(Some(first_umid.clone()));
+            if let Some(first_with_data) = metadata.file_package_umids.iter().find(|u| u.has_data) {
+                source_info.umid = Some(Some(first_with_data.umid.clone()));
             }
         }
+        related_umids_per_file.push(
+            umid.map(|m| m.file_package_umids.iter().map(|u| u.umid.clone()).collect())
+                .unwrap_or_default(),
+        );
 
         let req = AssetUploadRequest::new(
             i32::try_from(content_length).unwrap_or(i32::MAX),
@@ -515,6 +520,13 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
             );
             preproc_req.generate_time_based_media_description =
                 Some(!args.disable_description_generation);
+            let all_related_umids: Vec<String> = related_umids_per_file
+                .into_iter()
+                .flat_map(|v| v.into_iter())
+                .collect();
+            if !all_related_umids.is_empty() {
+                preproc_req.related_umid_for_master_clip = Some(Some(all_related_umids));
+            }
             let _ = progress_handle.add_info(format!(
                 "Triggering preprocessing for {} asset(s)...",
                 preproc_req.assets.len()
@@ -744,6 +756,7 @@ fn run_two_queue_pipeline(
 
         let consumer = async move {
             let mut completed_responses: Vec<AssetUploadResponse> = Vec::new();
+            let mut completed_related_umids: Vec<Vec<String>> = Vec::new();
             while let Some(file_info) = upload_rx.recv().await {
                 progress_handle.decrement_upload_queued();
                 progress_handle.pop_upload_pending();
@@ -755,11 +768,12 @@ fn run_two_queue_pipeline(
                     .to_string();
                 progress_handle.set_upload_current(Some(file_name.clone()));
 
-                let (req, _upload_id, in_app_path_str) = build_single_upload_request(
-                    &file_info,
-                    &base_dir_async,
-                    &in_app_path,
-                )?;
+                let (req, _upload_id, in_app_path_str, file_related_umids) =
+                    build_single_upload_request(
+                        &file_info,
+                        &base_dir_async,
+                        &in_app_path,
+                    )?;
                 let responses =
                     request_presigned_urls(&cfg, &vec![req], &api_key, bearer_header).await?;
                 let upload_resp = responses
@@ -799,6 +813,7 @@ fn run_two_queue_pipeline(
                     ));
                 }
                 completed_responses.push(upload_resp);
+                completed_related_umids.push(file_related_umids);
                 progress_handle.set_upload_current(None::<&str>);
                 progress_handle.set_upload_current_pct(None);
             }
@@ -810,6 +825,13 @@ fn run_two_queue_pipeline(
                 );
                 preproc_req.generate_time_based_media_description =
                     Some(!disable_description_generation);
+                let all_related_umids: Vec<String> = completed_related_umids
+                    .iter()
+                    .flat_map(|v| v.iter().cloned())
+                    .collect();
+                if !all_related_umids.is_empty() {
+                    preproc_req.related_umid_for_master_clip = Some(Some(all_related_umids));
+                }
                 let _ = progress_handle.add_info("Triggering preprocessing...");
                 let preproc_tasks = api::process_assets_users_assets_preprocess_post(
                     &cfg,
@@ -847,7 +869,7 @@ fn build_single_upload_request(
     file_info: &FileToUpload,
     base_dir: &PathBuf,
     in_app_path: &Option<String>,
-) -> Result<(AssetUploadRequest, String, String), String> {
+) -> Result<(AssetUploadRequest, String, String, Vec<String>), String> {
     let content_length = std::fs::metadata(&file_info.upload_path)
         .map_err(|e| format!("failed to stat {}: {}", file_info.upload_path.display(), e))?
         .len();
@@ -877,12 +899,16 @@ fn build_single_upload_request(
         None,
         vec![],
     );
+    let related_umids: Vec<String> = umid
+        .as_ref()
+        .map(|m| m.file_package_umids.iter().map(|u| u.umid.clone()).collect())
+        .unwrap_or_default();
     if let Some(metadata) = umid {
         if let Some(umid_value) = metadata.material_package_umid {
             source_info.capture_device_umid = Some(Some(umid_value));
         }
-        if let Some(first_umid) = metadata.file_package_umids.first() {
-            source_info.umid = Some(Some(first_umid.clone()));
+        if let Some(first_with_data) = metadata.file_package_umids.iter().find(|u| u.has_data) {
+            source_info.umid = Some(Some(first_with_data.umid.clone()));
         }
     }
     let req = AssetUploadRequest::new(
@@ -890,7 +916,7 @@ fn build_single_upload_request(
         upload_id.clone(),
         source_info,
     );
-    Ok((req, upload_id, file_in_app_path))
+    Ok((req, upload_id, file_in_app_path, related_umids))
 }
 
 async fn request_presigned_urls(
