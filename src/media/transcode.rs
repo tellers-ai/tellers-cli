@@ -99,6 +99,7 @@ pub fn create_rendition(
     input: &PathBuf,
     definition: RenditionDefinition,
     progress_cb: Option<&mut dyn FnMut(f64)>,
+    info_cb: Option<&dyn Fn(&str)>,
 ) -> Result<PathBuf, String> {
     let temp_base = get_temp_rendition_dir()?;
     let output = compute_rendition_output_path(input, &definition, &temp_base);
@@ -106,12 +107,17 @@ pub fn create_rendition(
     if let (Ok(in_md), Ok(out_md)) = (std::fs::metadata(input), std::fs::metadata(&output)) {
         if let (Ok(in_time), Ok(out_time)) = (in_md.modified(), out_md.modified()) {
             if out_time >= in_time {
-                crate::output::info(format!(
+                let msg = format!(
                     "Reusing existing rendition for {} at {} ({})",
                     input.display(),
                     output.display(),
                     definition.to_name()
-                ));
+                );
+                if let Some(f) = info_cb {
+                    f(&msg);
+                } else if progress_cb.is_none() {
+                    crate::output::info(msg);
+                }
                 return Ok(output);
             }
         }
@@ -231,6 +237,7 @@ pub fn normalize_audio_to_mp3(
     input: &PathBuf,
     audio_bitrate: Option<u32>,
     progress_cb: Option<&mut dyn FnMut(f64)>,
+    info_cb: Option<&dyn Fn(&str)>,
 ) -> Result<PathBuf, String> {
     let temp_base = get_temp_rendition_dir()?;
     let output = compute_normalized_audio_output_path(input, &temp_base);
@@ -238,11 +245,16 @@ pub fn normalize_audio_to_mp3(
     if let (Ok(in_md), Ok(out_md)) = (std::fs::metadata(input), std::fs::metadata(&output)) {
         if let (Ok(in_time), Ok(out_time)) = (in_md.modified(), out_md.modified()) {
             if out_time >= in_time {
-                crate::output::info(format!(
+                let msg = format!(
                     "Reusing existing normalized MP3 for {} at {}",
                     input.display(),
                     output.display()
-                ));
+                );
+                if let Some(f) = info_cb {
+                    f(&msg);
+                } else if progress_cb.is_none() {
+                    crate::output::info(msg);
+                }
                 return Ok(output);
             }
         }
@@ -354,6 +366,7 @@ pub fn convert_to_mp3(
     input: &PathBuf,
     audio_bitrate: Option<u32>,
     progress_cb: Option<&mut dyn FnMut(f64)>,
+    info_cb: Option<&dyn Fn(&str)>,
 ) -> Result<PathBuf, String> {
     let temp_base = get_temp_rendition_dir()?;
     let output = compute_audio_output_path(input, &temp_base);
@@ -361,11 +374,16 @@ pub fn convert_to_mp3(
     if let (Ok(in_md), Ok(out_md)) = (std::fs::metadata(input), std::fs::metadata(&output)) {
         if let (Ok(in_time), Ok(out_time)) = (in_md.modified(), out_md.modified()) {
             if out_time >= in_time {
-                crate::output::info(format!(
+                let msg = format!(
                     "Reusing existing MP3 conversion for {} at {}",
                     input.display(),
                     output.display()
-                ));
+                );
+                if let Some(f) = info_cb {
+                    f(&msg);
+                } else if progress_cb.is_none() {
+                    crate::output::info(msg);
+                }
                 return Ok(output);
             }
         }

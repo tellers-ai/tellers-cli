@@ -563,7 +563,8 @@ fn do_one_downscale(
                 audio_bitrate: None,
             };
             let mut progress_cb = |pct: f64| progress_handle.set_downscale_current_pct(Some(pct));
-            match create_rendition(&original_path, def, Some(&mut progress_cb)) {
+            let info_cb = |msg: &str| progress_handle.add_info(msg);
+            match create_rendition(&original_path, def, Some(&mut progress_cb), Some(&info_cb)) {
                 Ok(upload_path) => FileToUpload { upload_path, original_path },
                 Err(e) => {
                     let _ = progress_handle.add_error(format!(
@@ -577,7 +578,8 @@ fn do_one_downscale(
         }
         DownscaleWork::MxfAudio(original_path) => {
             let mut progress_cb = |pct: f64| progress_handle.set_downscale_current_pct(Some(pct));
-            match convert_to_mp3(&original_path, None, Some(&mut progress_cb)) {
+            let info_cb = |msg: &str| progress_handle.add_info(msg);
+            match convert_to_mp3(&original_path, None, Some(&mut progress_cb), Some(&info_cb)) {
                 Ok(upload_path) => FileToUpload { upload_path, original_path },
                 Err(e) => {
                     let _ = progress_handle.add_error(format!(
@@ -597,7 +599,8 @@ fn do_one_downscale(
                         audio_bitrate: None,
                     };
                     let mut progress_cb = |pct: f64| progress_handle.set_downscale_current_pct(Some(pct));
-                    match create_rendition(&original_path, def, Some(&mut progress_cb)) {
+                    let info_cb = |msg: &str| progress_handle.add_info(msg);
+                    match create_rendition(&original_path, def, Some(&mut progress_cb), Some(&info_cb)) {
                         Ok(upload_path) => FileToUpload { upload_path, original_path },
                         Err(e) => {
                             let _ = progress_handle.add_error(format!(
@@ -611,7 +614,8 @@ fn do_one_downscale(
                 }
                 DownscaleWork::Audio(original_path) => {
                     let mut progress_cb = |pct: f64| progress_handle.set_downscale_current_pct(Some(pct));
-                    match normalize_audio_to_mp3(&original_path, Some(192), Some(&mut progress_cb)) {
+                    let info_cb = |msg: &str| progress_handle.add_info(msg);
+                    match normalize_audio_to_mp3(&original_path, Some(192), Some(&mut progress_cb), Some(&info_cb)) {
                         Ok(upload_path) => FileToUpload {
                             upload_path,
                             original_path,
