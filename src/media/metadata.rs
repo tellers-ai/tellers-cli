@@ -4,9 +4,18 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 
+/// A file-package UMID with a flag indicating whether the stream has media data.
+#[derive(Clone, Debug)]
+pub struct FilePackageUmid {
+    pub umid: String,
+    /// True if this UMID came from a stream with actual media data (video/audio);
+    /// false if from a stream with `codec_type == "data"` (no media data in the stream).
+    pub has_data: bool,
+}
+
 pub struct MediaMetadata {
     pub material_package_umid: Option<String>,
-    pub file_package_umids: Vec<String>,
+    pub file_package_umids: Vec<FilePackageUmid>,
 }
 
 pub fn extract_media_metadata(path: &PathBuf) -> Result<MediaMetadata, String> {
@@ -21,7 +30,7 @@ pub fn extract_media_metadata(path: &PathBuf) -> Result<MediaMetadata, String> {
 #[derive(Debug, Default)]
 pub struct MxfUmids {
     pub material_package_umid: Option<String>,
-    pub file_package_umids: Vec<String>,
+    pub file_package_umids: Vec<FilePackageUmid>,
 }
 
 fn run_ffprobe_json(path: &PathBuf) -> Result<Option<Value>, String> {
@@ -98,7 +107,7 @@ fn extract_mxf_umids(path: &PathBuf) -> Result<MxfUmids, String> {
     };
 
     let mut material = None;
-    let mut file_package_ids: Vec<String> = Vec::new();
+    let mut file_package_ids: Vec<FilePackageUmid> = Vec::new();
 
     if let Some(format) = payload.get("format") {
         if let Some(tags) = format.get("tags") {
@@ -113,22 +122,23 @@ fn extract_mxf_umids(path: &PathBuf) -> Result<MxfUmids, String> {
     if let Some(streams) = payload.get("streams") {
         if let Some(streams_array) = streams.as_array() {
             for stream in streams_array {
-                // Skip streams with codec_type "data"
-                // codec_type == "data" means that there is no data in the stream
-                if let Some(codec_type) = stream.get("codec_type") {
-                    if let Some(codec_type_str) = codec_type.as_str() {
-                        if codec_type_str == "data" {
-                            continue;
-                        }
-                    }
-                }
-
+                // Collect file_package_umid from all streams (including codec_type "data")
+                // so they can be sent as related_umid_for_master_clip. Record whether
+                // the stream has media data (video/audio) or is data-only (codec_type "data").
+                let has_data = stream
+                    .get("codec_type")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s != "data")
+                    .unwrap_or(true);
                 if let Some(tags) = stream.get("tags") {
                     if let Some(tags_obj) = tags.as_object() {
                         if let Some(umid_value) = tags_obj.get("file_package_umid") {
                             if let Some(file_umid) = sanitize_umid(umid_value.as_str()) {
-                                if !file_package_ids.contains(&file_umid) {
-                                    file_package_ids.push(file_umid);
+                                if !file_package_ids.iter().any(|u| u.umid == file_umid) {
+                                    file_package_ids.push(FilePackageUmid {
+                                        umid: file_umid,
+                                        has_data,
+                                    });
                                 }
                             }
                         }
