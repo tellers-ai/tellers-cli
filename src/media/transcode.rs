@@ -1,8 +1,23 @@
 use clap::ValueEnum;
 use ffmpeg_sidecar::command::FfmpegCommand;
+use ffmpeg_sidecar::event::{FfmpegEvent, LogLevel};
 use std::path::PathBuf;
 
 use crate::media::video_quality::VideoQuality;
+
+/// Parse ffmpeg time string e.g. "00:01:23.45" into seconds.
+fn parse_ffmpeg_time(s: &str) -> Option<f64> {
+    let s = s.trim();
+    let parts: Vec<&str> = s.splitn(3, ':').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let hours: f64 = parts[0].trim().parse().ok()?;
+    let minutes: f64 = parts[1].trim().parse().ok()?;
+    let secs_str = parts[2].trim();
+    let seconds: f64 = secs_str.parse().ok()?;
+    Some(hours * 3600.0 + minutes * 60.0 + seconds)
+}
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 #[value(rename_all = "lowercase")]
@@ -83,6 +98,7 @@ fn compute_rendition_output_path(
 pub fn create_rendition(
     input: &PathBuf,
     definition: RenditionDefinition,
+    progress_cb: Option<&mut dyn FnMut(f64)>,
 ) -> Result<PathBuf, String> {
     let temp_base = get_temp_rendition_dir()?;
     let output = compute_rendition_output_path(input, &definition, &temp_base);
@@ -129,18 +145,69 @@ pub fn create_rendition(
 
     cmd.output(output.to_string_lossy());
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("failed to start ffmpeg: {}", e))?;
-    let status = child
-        .wait()
-        .map_err(|e| format!("failed to wait for ffmpeg: {}", e))?;
-    if !status.success() {
-        return Err(format!(
-            "ffmpeg failed creating rendition: {} -> {}",
-            input.display(),
-            output.display()
-        ));
+    if let Some(cb) = progress_cb {
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("failed to start ffmpeg: {}", e))?;
+        let mut iter = child
+            .iter()
+            .map_err(|e| format!("failed to create ffmpeg event iterator: {}", e))?;
+        let mut total_duration: Option<f64> = None;
+        let mut stderr_lines: Vec<String> = Vec::new();
+        while let Some(event) = iter.next() {
+            match &event {
+                FfmpegEvent::ParsedDuration(d) => {
+                    total_duration = Some(d.duration);
+                }
+                FfmpegEvent::Progress(p) => {
+                    if let (Some(total), Some(current_secs)) =
+                        (total_duration, parse_ffmpeg_time(&p.time))
+                    {
+                        if total > 0.0 {
+                            let pct = (100.0 * current_secs / total).min(100.0);
+                            cb(pct);
+                        }
+                    }
+                }
+                FfmpegEvent::Error(e) => {
+                    stderr_lines.push(e.clone());
+                }
+                FfmpegEvent::Log(LogLevel::Error, msg) | FfmpegEvent::Log(LogLevel::Fatal, msg) => {
+                    stderr_lines.push(msg.clone());
+                }
+                _ => {}
+            }
+        }
+        let status = child
+            .wait()
+            .map_err(|e| format!("failed to wait for ffmpeg: {}", e))?;
+        if !status.success() {
+            let log_suffix = if stderr_lines.is_empty() {
+                String::new()
+            } else {
+                format!("\nffmpeg log:\n{}", stderr_lines.join("\n"))
+            };
+            return Err(format!(
+                "ffmpeg failed creating rendition: {} -> {}{}",
+                input.display(),
+                output.display(),
+                log_suffix
+            ));
+        }
+    } else {
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("failed to start ffmpeg: {}", e))?;
+        let status = child
+            .wait()
+            .map_err(|e| format!("failed to wait for ffmpeg: {}", e))?;
+        if !status.success() {
+            return Err(format!(
+                "ffmpeg failed creating rendition: {} -> {}",
+                input.display(),
+                output.display()
+            ));
+        }
     }
 
     Ok(output)
@@ -163,6 +230,7 @@ fn compute_normalized_audio_output_path(input: &PathBuf, out_base: &PathBuf) -> 
 pub fn normalize_audio_to_mp3(
     input: &PathBuf,
     audio_bitrate: Option<u32>,
+    progress_cb: Option<&mut dyn FnMut(f64)>,
 ) -> Result<PathBuf, String> {
     let temp_base = get_temp_rendition_dir()?;
     let output = compute_normalized_audio_output_path(input, &temp_base);
@@ -196,24 +264,97 @@ pub fn normalize_audio_to_mp3(
 
     cmd.output(output.to_string_lossy());
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("failed to start ffmpeg: {}", e))?;
-    let status = child
-        .wait()
-        .map_err(|e| format!("failed to wait for ffmpeg: {}", e))?;
-    if !status.success() {
-        return Err(format!(
-            "ffmpeg failed normalizing audio to MP3: {} -> {}",
-            input.display(),
-            output.display()
-        ));
-    }
-
-    Ok(output)
+    run_ffmpeg_with_progress(
+        cmd,
+        input,
+        &output,
+        "normalizing audio to MP3",
+        progress_cb,
+    )
 }
 
-pub fn convert_to_mp3(input: &PathBuf, audio_bitrate: Option<u32>) -> Result<PathBuf, String> {
+fn run_ffmpeg_with_progress(
+    mut cmd: FfmpegCommand,
+    input: &PathBuf,
+    output: &PathBuf,
+    operation: &str,
+    progress_cb: Option<&mut dyn FnMut(f64)>,
+) -> Result<PathBuf, String> {
+    if let Some(cb) = progress_cb {
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("failed to start ffmpeg: {}", e))?;
+        let mut iter = child
+            .iter()
+            .map_err(|e| format!("failed to create ffmpeg event iterator: {}", e))?;
+        let mut total_duration: Option<f64> = None;
+        let mut stderr_lines: Vec<String> = Vec::new();
+        while let Some(event) = iter.next() {
+            match &event {
+                FfmpegEvent::ParsedDuration(d) => {
+                    total_duration = Some(d.duration);
+                }
+                FfmpegEvent::Progress(p) => {
+                    if let (Some(total), Some(current_secs)) =
+                        (total_duration, parse_ffmpeg_time(&p.time))
+                    {
+                        if total > 0.0 {
+                            let pct = (100.0 * current_secs / total).min(100.0);
+                            cb(pct);
+                        }
+                    }
+                }
+                FfmpegEvent::Error(e) => {
+                    stderr_lines.push(e.clone());
+                }
+                FfmpegEvent::Log(LogLevel::Error, msg) | FfmpegEvent::Log(LogLevel::Fatal, msg) => {
+                    stderr_lines.push(msg.clone());
+                }
+                _ => {}
+            }
+        }
+        let status = child
+            .wait()
+            .map_err(|e| format!("failed to wait for ffmpeg: {}", e))?;
+        if !status.success() {
+            let log_suffix = if stderr_lines.is_empty() {
+                String::new()
+            } else {
+                format!("\nffmpeg log:\n{}", stderr_lines.join("\n"))
+            };
+            return Err(format!(
+                "ffmpeg failed {}: {} -> {}{}",
+                operation,
+                input.display(),
+                output.display(),
+                log_suffix
+            ));
+        }
+        Ok(output.clone())
+    } else {
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("failed to start ffmpeg: {}", e))?;
+        let status = child
+            .wait()
+            .map_err(|e| format!("failed to wait for ffmpeg: {}", e))?;
+        if !status.success() {
+            return Err(format!(
+                "ffmpeg failed {}: {} -> {}",
+                operation,
+                input.display(),
+                output.display()
+            ));
+        }
+        Ok(output.clone())
+    }
+}
+
+pub fn convert_to_mp3(
+    input: &PathBuf,
+    audio_bitrate: Option<u32>,
+    progress_cb: Option<&mut dyn FnMut(f64)>,
+) -> Result<PathBuf, String> {
     let temp_base = get_temp_rendition_dir()?;
     let output = compute_audio_output_path(input, &temp_base);
 
@@ -247,21 +388,13 @@ pub fn convert_to_mp3(input: &PathBuf, audio_bitrate: Option<u32>) -> Result<Pat
 
     cmd.output(output.to_string_lossy());
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("failed to start ffmpeg: {}", e))?;
-    let status = child
-        .wait()
-        .map_err(|e| format!("failed to wait for ffmpeg: {}", e))?;
-    if !status.success() {
-        return Err(format!(
-            "ffmpeg failed converting to MP3: {} -> {}",
-            input.display(),
-            output.display()
-        ));
-    }
-
-    Ok(output)
+    run_ffmpeg_with_progress(
+        cmd,
+        input,
+        &output,
+        "converting to MP3",
+        progress_cb,
+    )
 }
 
 pub fn is_mxf_file(path: &PathBuf) -> bool {

@@ -349,10 +349,11 @@ pub fn draw_ui_internal(frame: &mut Frame, state: &ProgressState) {
         } else {
             Color::Yellow
         };
+        let pct_label = format!(" {:.0}%", task.progress);
         let gauge = Gauge::default()
             .gauge_style(Style::default().fg(gauge_color))
             .ratio(task.progress / 100.0)
-            .label("");
+            .label(pct_label);
 
         let y = list_area.top().saturating_add(i as u16);
         if y >= list_area.bottom() || y >= gauge_area.bottom() {
