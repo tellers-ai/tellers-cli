@@ -514,34 +514,35 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
             let _ = progress_handle.add_success("All uploads completed");
 
             // Call preprocess for uploaded assets
-            let mut preproc_req = ProcessAssetsRequest::new(
-                responses.clone(),
-                None::<tellers_api_client::models::VersionReference>,
-            );
-            preproc_req.generate_time_based_media_description =
-                Some(!args.disable_description_generation);
-            let all_related_umids: Vec<String> = related_umids_per_file
-                .into_iter()
-                .flat_map(|v| v.into_iter())
-                .collect();
-            if !all_related_umids.is_empty() {
-                preproc_req.related_umid_for_master_clip = Some(Some(all_related_umids));
-            }
             let _ = progress_handle.add_info(format!(
                 "Triggering preprocessing for {} asset(s)...",
-                preproc_req.assets.len()
+                responses.len()
             ));
-            let preproc_tasks = api::process_assets_users_assets_preprocess_post(
-                &cfg,
-                preproc_req,
-                None,
-                Some(&api_key),
-                bearer_header.as_deref(),
-            )
-            .await
-            .map_err(|e| format!("failed to trigger preprocess: {}", e))?;
-            let _ = progress_handle
-                .add_success(format!("Preprocess tasks queued: {}", preproc_tasks.len()));
+            for (resp, file_related_umids) in responses.iter().zip(related_umids_per_file.iter()) {
+                let mut preproc_req = ProcessAssetsRequest::new(
+                    vec![resp.clone()],
+                    None::<tellers_api_client::models::VersionReference>,
+                );
+                preproc_req.generate_time_based_media_description =
+                    Some(!args.disable_description_generation);
+                if !file_related_umids.is_empty() {
+                    preproc_req.related_umid_for_master_clip =
+                        Some(Some(file_related_umids.clone()));
+                }
+                let preproc_tasks = api::process_assets_users_assets_preprocess_post(
+                    &cfg,
+                    preproc_req,
+                    None,
+                    Some(&api_key),
+                    bearer_header.as_deref(),
+                )
+                .await
+                .map_err(|e| format!("failed to trigger preprocess: {}", e))?;
+                let _ = progress_handle.add_success(format!(
+                    "Preprocess tasks queued: {}",
+                    preproc_tasks.len()
+                ));
+            }
 
             crate::tui::InlineProgress::stop_render_loop(render_handle).await;
             progress.finish()?;
@@ -818,21 +819,21 @@ fn run_two_queue_pipeline(
                 progress_handle.set_upload_current_pct(None);
             }
 
-            if !completed_responses.is_empty() {
+            for (resp, file_related_umids) in completed_responses
+                .iter()
+                .zip(completed_related_umids.iter())
+            {
+                let _ = progress_handle.add_info("Triggering preprocessing...");
                 let mut preproc_req = ProcessAssetsRequest::new(
-                    completed_responses.clone(),
+                    vec![resp.clone()],
                     None::<tellers_api_client::models::VersionReference>,
                 );
                 preproc_req.generate_time_based_media_description =
                     Some(!disable_description_generation);
-                let all_related_umids: Vec<String> = completed_related_umids
-                    .iter()
-                    .flat_map(|v| v.iter().cloned())
-                    .collect();
-                if !all_related_umids.is_empty() {
-                    preproc_req.related_umid_for_master_clip = Some(Some(all_related_umids));
+                if !file_related_umids.is_empty() {
+                    preproc_req.related_umid_for_master_clip =
+                        Some(Some(file_related_umids.clone()));
                 }
-                let _ = progress_handle.add_info("Triggering preprocessing...");
                 let preproc_tasks = api::process_assets_users_assets_preprocess_post(
                     &cfg,
                     preproc_req,
