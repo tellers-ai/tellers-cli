@@ -320,6 +320,7 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
             &args.in_app_path,
             &args.auth_bearer,
             args.force_upload,
+            args.disable_description_generation,
         );
     }
 
@@ -503,6 +504,8 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
                 &cfg,
                 &api_key,
                 bearer_header.as_deref(),
+                &related_umids_per_file,
+                args.disable_description_generation,
             )
             .await;
 
@@ -512,37 +515,6 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
             upload_result?;
 
             let _ = progress_handle.add_success("All uploads completed");
-
-            // Call preprocess for uploaded assets
-            let _ = progress_handle.add_info(format!(
-                "Triggering preprocessing for {} asset(s)...",
-                responses.len()
-            ));
-            for (resp, file_related_umids) in responses.iter().zip(related_umids_per_file.iter()) {
-                let mut preproc_req = ProcessAssetsRequest::new(
-                    vec![resp.clone()],
-                    None::<tellers_api_client::models::VersionReference>,
-                );
-                preproc_req.generate_time_based_media_description =
-                    Some(!args.disable_description_generation);
-                if !file_related_umids.is_empty() {
-                    preproc_req.related_umid_for_master_clip =
-                        Some(Some(file_related_umids.clone()));
-                }
-                let preproc_tasks = api::process_assets_users_assets_preprocess_post(
-                    &cfg,
-                    preproc_req,
-                    None,
-                    Some(&api_key),
-                    bearer_header.as_deref(),
-                )
-                .await
-                .map_err(|e| format!("failed to trigger preprocess: {}", e))?;
-                let _ = progress_handle.add_success(format!(
-                    "Preprocess tasks queued: {}",
-                    preproc_tasks.len()
-                ));
-            }
 
             crate::tui::InlineProgress::stop_render_loop(render_handle).await;
             progress.finish()?;
@@ -756,8 +728,6 @@ fn run_two_queue_pipeline(
         drop(upload_tx);
 
         let consumer = async move {
-            let mut completed_responses: Vec<AssetUploadResponse> = Vec::new();
-            let mut completed_related_umids: Vec<Vec<String>> = Vec::new();
             while let Some(file_info) = upload_rx.recv().await {
                 progress_handle.decrement_upload_queued();
                 progress_handle.pop_upload_pending();
@@ -813,26 +783,17 @@ fn run_two_queue_pipeline(
                         e
                     ));
                 }
-                completed_responses.push(upload_resp);
-                completed_related_umids.push(file_related_umids);
-                progress_handle.set_upload_current(None::<&str>);
-                progress_handle.set_upload_current_pct(None);
-            }
-
-            for (resp, file_related_umids) in completed_responses
-                .iter()
-                .zip(completed_related_umids.iter())
-            {
+                // Call preprocess as soon as this upload finishes
                 let _ = progress_handle.add_info("Triggering preprocessing...");
                 let mut preproc_req = ProcessAssetsRequest::new(
-                    vec![resp.clone()],
+                    vec![upload_resp.clone()],
                     None::<tellers_api_client::models::VersionReference>,
                 );
                 preproc_req.generate_time_based_media_description =
                     Some(!disable_description_generation);
                 if !file_related_umids.is_empty() {
                     preproc_req.related_umid_for_master_clip =
-                        Some(Some(file_related_umids.clone()));
+                        Some(Some(file_related_umids));
                 }
                 let preproc_tasks = api::process_assets_users_assets_preprocess_post(
                     &cfg,
@@ -847,6 +808,9 @@ fn run_two_queue_pipeline(
                     "Preprocess tasks queued: {}",
                     preproc_tasks.len()
                 ));
+
+                progress_handle.set_upload_current(None::<&str>);
+                progress_handle.set_upload_current_pct(None);
             }
 
             Ok(())
@@ -1002,6 +966,8 @@ async fn upload_to_presigned_urls(
     cfg: &Configuration,
     api_key: &str,
     bearer_opt: Option<&str>,
+    related_umids_per_file: &[Vec<String>],
+    disable_description_generation: bool,
 ) -> Result<(), String> {
     let http = Arc::new(
         reqwest::Client::builder()
@@ -1024,6 +990,10 @@ async fn upload_to_presigned_urls(
             .get(&upload_id)
             .ok_or_else(|| format!("missing presigned url for upload_id {}", upload_id))?
             .clone();
+        let file_related_umids = related_umids_per_file
+            .get(i)
+            .cloned()
+            .unwrap_or_default();
         let http_clone = Arc::clone(&http);
         let semaphore_clone = Arc::clone(&semaphore);
         let progress_handle_clone = progress_handle.clone();
@@ -1070,6 +1040,36 @@ async fn upload_to_presigned_urls(
 
             let success = result.is_ok();
             let _ = progress_handle_clone.finish_task(task_id, success);
+
+            if success {
+                // Call preprocess as soon as this upload finishes
+                let mut preproc_req = ProcessAssetsRequest::new(
+                    vec![upload_resp],
+                    None::<tellers_api_client::models::VersionReference>,
+                );
+                preproc_req.generate_time_based_media_description =
+                    Some(!disable_description_generation);
+                if !file_related_umids.is_empty() {
+                    preproc_req.related_umid_for_master_clip =
+                        Some(Some(file_related_umids));
+                }
+                if let Err(e) = api::process_assets_users_assets_preprocess_post(
+                    &cfg_clone,
+                    preproc_req,
+                    None,
+                    Some(&api_key_clone),
+                    bearer_clone.as_deref(),
+                )
+                .await
+                {
+                    let _ = progress_handle_clone.add_error(format!(
+                        "Failed to trigger preprocess: {}",
+                        e
+                    ));
+                    return Err(format!("preprocess: {}", e));
+                }
+            }
+
             result
         });
 
