@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use crate::auth;
 use crate::media::ffmpeg::get_media_duration;
+use crate::media::metadata::extract_media_metadata;
 use crate::media::media_file_type::{is_audio_file, is_image_file, is_metadata_file};
 use crate::media::transcode::{has_video_streams, is_mxf_file};
 use crate::media::video_file_ext::has_video_ext;
@@ -17,6 +18,7 @@ pub fn run_dry_run(
     in_app_path: &Option<String>,
     auth_bearer: &Option<String>,
     force_upload: bool,
+    disable_description_generation: bool,
 ) -> Result<(), String> {
     let bearer_env = auth_bearer
         .clone()
@@ -242,6 +244,35 @@ pub fn run_dry_run(
             video_count,
             video_duration_secs / 3600.0
         ));
+    }
+
+    // Print what would be sent for preprocess for each file
+    output::plain("");
+    output::info("Preprocess payload (dry-run) per file:");
+    for file_path in &files_to_check {
+        let file_name = file_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let related_umids: Vec<String> = extract_media_metadata(file_path)
+            .map(|m| m.file_package_umids.iter().map(|u| u.umid.clone()).collect())
+            .unwrap_or_default();
+        let generate_time_based_media_description = !disable_description_generation;
+        output::plain(format!("  file: {}", file_name));
+        output::plain(format!(
+            "    generate_time_based_media_description: {}",
+            generate_time_based_media_description
+        ));
+        if related_umids.is_empty() {
+            output::plain("    related_umid_for_master_clip: null");
+        } else {
+            output::plain("    related_umid_for_master_clip:");
+            for umid in &related_umids {
+                output::plain(format!("      - {}", umid));
+            }
+        }
+        output::plain("");
     }
 
     Ok(())
