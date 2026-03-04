@@ -224,7 +224,8 @@ fn run_recreate_filesystem(args: RecreateFilesystemArgs) -> Result<(), String> {
         .map_err(|e| format!("failed to start runtime: {}", e))?;
 
     for folder_path in in_app_paths {
-        let req = CreateFolderRequest::new(folder_path.clone());
+        let mut req = CreateFolderRequest::new();
+        req.path = Some(Some(folder_path.clone()));
         let response = rt.block_on(api::create_folder_asset_folder_post(
             &cfg,
             req,
@@ -791,9 +792,9 @@ fn run_two_queue_pipeline(
                 );
                 preproc_req.generate_time_based_media_description =
                     Some(!disable_description_generation);
+                // related_umid_for_master_clip removed in current API; use override_entity_ids if needed
                 if !file_related_umids.is_empty() {
-                    preproc_req.related_umid_for_master_clip =
-                        Some(Some(file_related_umids));
+                    preproc_req.override_entity_ids = Some(Some(file_related_umids));
                 }
                 let preproc_tasks = api::process_assets_users_assets_preprocess_post(
                     &cfg,
@@ -1050,8 +1051,7 @@ async fn upload_to_presigned_urls(
                 preproc_req.generate_time_based_media_description =
                     Some(!disable_description_generation);
                 if !file_related_umids.is_empty() {
-                    preproc_req.related_umid_for_master_clip =
-                        Some(Some(file_related_umids));
+                    preproc_req.override_entity_ids = Some(Some(file_related_umids));
                 }
                 if let Err(e) = api::process_assets_users_assets_preprocess_post(
                     &cfg_clone,
