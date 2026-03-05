@@ -43,7 +43,6 @@ fn run_ffprobe_json(path: &PathBuf) -> Result<Option<Value>, String> {
         .args([
             "-v",
             "quiet",
-            "-count_frames",
             "-print_format",
             "json",
             "-show_format",
