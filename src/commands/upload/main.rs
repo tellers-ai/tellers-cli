@@ -5,7 +5,9 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Semaphore;
+use tokio::time::sleep;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -901,6 +903,9 @@ fn build_single_upload_request(
     Ok((req, upload_id, file_in_app_path, related_umids))
 }
 
+const UPLOAD_URLS_MAX_RETRIES: u32 = 3;
+const UPLOAD_URLS_RETRY_DELAY: Duration = Duration::from_secs(3);
+
 async fn request_presigned_urls(
     cfg: &Configuration,
     requests: &Vec<AssetUploadRequest>,
@@ -936,39 +941,69 @@ async fn request_presigned_urls(
         }
     }
 
-    api::create_upload_urls_users_assets_upload_urls_post(
-        cfg,
-        requests.clone(),
-        Some(api_key),
-        bearer_opt,
-    )
-    .await
-    .map_err(|e| {
-        let mut m = format!("failed to get upload urls: {}", e);
-        match &e {
-            tellers_api_client::apis::Error::Reqwest(req_err) => {
-                if let Some(status) = req_err.status() {
-                    m.push_str(&format!("; http_status: {}", status));
-                }
-                if req_err.is_builder() {
-                    m.push_str("; reqwest builder error");
+    let mut last_err = None;
+    for attempt in 1..=UPLOAD_URLS_MAX_RETRIES {
+        match api::create_upload_urls_users_assets_upload_urls_post(
+            cfg,
+            requests.clone(),
+            Some(api_key),
+            bearer_opt,
+        )
+        .await
+        {
+            Ok(responses) => return Ok(responses),
+            Err(e) => {
+                let retryable = match &e {
+                    tellers_api_client::apis::Error::ResponseError(resp) => {
+                        let code = resp.status.as_u16();
+                        code == 502 || code == 503 || code == 504
+                    }
+                    tellers_api_client::apis::Error::Reqwest(req_err) => {
+                        req_err.is_timeout() || req_err.is_connect()
+                    }
+                    _ => false,
+                };
+                last_err = Some(e);
+                if retryable && attempt < UPLOAD_URLS_MAX_RETRIES {
+                    output::info(format!(
+                        "Upload URL request failed (attempt {}/{}), retrying in {}s...",
+                        attempt,
+                        UPLOAD_URLS_MAX_RETRIES,
+                        UPLOAD_URLS_RETRY_DELAY.as_secs()
+                    ));
+                    sleep(UPLOAD_URLS_RETRY_DELAY).await;
+                } else {
+                    break;
                 }
             }
-            tellers_api_client::apis::Error::ResponseError(resp) => {
-                m.push_str(&format!("; http_status: {}", resp.status));
-                if !resp.content.is_empty() {
-                    m.push_str(&format!("; response_body: {}", resp.content));
-                }
+        }
+    }
+
+    let e = last_err.unwrap();
+    let mut m = format!("failed to get upload urls: {}", e);
+    match &e {
+        tellers_api_client::apis::Error::Reqwest(req_err) => {
+            if let Some(status) = req_err.status() {
+                m.push_str(&format!("; http_status: {}", status));
             }
-            _ => {}
+            if req_err.is_builder() {
+                m.push_str("; reqwest builder error");
+            }
         }
-        let mut src_opt = std::error::Error::source(&e);
-        while let Some(src) = src_opt {
-            m.push_str(&format!("; source: {}", src));
-            src_opt = src.source();
+        tellers_api_client::apis::Error::ResponseError(resp) => {
+            m.push_str(&format!("; http_status: {}", resp.status));
+            if !resp.content.is_empty() {
+                m.push_str(&format!("; response_body: {}", resp.content));
+            }
         }
-        m
-    })
+        _ => {}
+    }
+    let mut src_opt = std::error::Error::source(&e);
+    while let Some(src) = src_opt {
+        m.push_str(&format!("; source: {}", src));
+        src_opt = src.source();
+    }
+    Err(m)
 }
 
 async fn upload_to_presigned_urls(
