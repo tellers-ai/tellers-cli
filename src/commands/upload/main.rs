@@ -12,7 +12,7 @@ use walkdir::WalkDir;
 use crate::auth;
 use crate::commands::api_config;
 use crate::media::ffmpeg::ensure_ffmpeg_available;
-use crate::media::metadata::extract_media_metadata;
+use crate::media::metadata::{extract_media_metadata, get_ffprobe_json};
 use crate::media::media_file_type::is_audio_file;
 use crate::media::transcode::{
     convert_to_mp3, create_rendition, has_video_streams, is_mxf_file, normalize_audio_to_mp3,
@@ -456,6 +456,14 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
                 source_info.umid = Some(Some(first_with_data.umid.clone()));
             }
         }
+        if is_mxf_file(&file_info.original_path) {
+            if let Ok(Some(probe)) = get_ffprobe_json(&file_info.original_path) {
+                if let serde_json::Value::Object(map) = probe {
+                    source_info.original_ffprobe_metadata =
+                        Some(Some(map.into_iter().collect()));
+                }
+            }
+        }
         related_umids_per_file.push(
             umid.map(|m| m.file_package_umids.iter().map(|u| u.umid.clone()).collect())
                 .unwrap_or_default(),
@@ -875,6 +883,14 @@ fn build_single_upload_request(
         }
         if let Some(first_with_data) = metadata.file_package_umids.iter().find(|u| u.has_data) {
             source_info.umid = Some(Some(first_with_data.umid.clone()));
+        }
+    }
+    if is_mxf_file(&file_info.original_path) {
+        if let Ok(Some(probe)) = get_ffprobe_json(&file_info.original_path) {
+            if let serde_json::Value::Object(map) = probe {
+                source_info.original_ffprobe_metadata =
+                    Some(Some(map.into_iter().collect()));
+            }
         }
     }
     let req = AssetUploadRequest::new(
