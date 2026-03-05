@@ -27,6 +27,11 @@ pub fn extract_media_metadata(path: &PathBuf) -> Result<MediaMetadata, String> {
     })
 }
 
+/// Returns raw ffprobe JSON (format + streams) for the given file, or None if ffprobe fails.
+pub fn get_ffprobe_json(path: &PathBuf) -> Result<Option<Value>, String> {
+    run_ffprobe_json(path)
+}
+
 #[derive(Debug, Default)]
 pub struct MxfUmids {
     pub material_package_umid: Option<String>,
@@ -37,11 +42,12 @@ fn run_ffprobe_json(path: &PathBuf) -> Result<Option<Value>, String> {
     let output = Command::new("ffprobe")
         .args([
             "-v",
-            "error",
+            "quiet",
+            "-count_frames",
+            "-print_format",
+            "json",
             "-show_format",
             "-show_streams",
-            "-of",
-            "json",
             &path.to_string_lossy(),
         ])
         .output()

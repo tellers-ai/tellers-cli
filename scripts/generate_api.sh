@@ -16,7 +16,6 @@ elif [ -f "${ROOT_DIR}/openapi-generator-cli.jar" ]; then
   GENERATOR="java -jar ${ROOT_DIR}/openapi-generator-cli.jar"
 else
   echo "OpenAPI Generator not found. We use openapi-generator-cli 7.17.0. Install with version control:"
-  echo "  - brew:  brew install openapi-generator@7.17"
   echo "  - npm:   npm i -g @openapitools/openapi-generator-cli"
   exit 1
 fi

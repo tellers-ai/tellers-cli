@@ -319,8 +319,12 @@ paths:
         Uses default group(s) unless group_id is set (user must have read access to
         that group).
 
+        after: only files with last_edit > after (newer).
+
         before: only files with last_edit < before (older); use the smallest last_edit
-        from a previous page to get the next page.'
+        from a previous page to get the next page.
+
+        filetype: only files with the given file type(s).'
       operationId: get_most_recent_files_asset_most_recent_get
       parameters:
       - name: path
@@ -354,6 +358,15 @@ paths:
             format: date-time
           - type: 'null'
           title: Before
+      - name: after
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: After
       - name: x-api-key
         in: header
         required: false
@@ -370,6 +383,16 @@ paths:
           - type: string
           - type: 'null'
           title: Authorization
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - type: array
+                items:
+                  $ref: '#/components/schemas/FileType'
+              - type: 'null'
+              title: Filetype
       responses:
         '200':
           description: Successful Response
@@ -391,8 +414,12 @@ paths:
       tags:
       - accepts-api-key
       summary: Create Folder
-      description: 'Create a folder at the given path. Ensures the folder and all
-        ancestor folders exist for the user''s default group.
+      description: 'Create a folder. Either at a path (body.path) or under a parent
+        folder (body.parent_asset_id + body.name).
+
+        Path-based: ensures folder and ancestors exist for the user''s default group.
+
+        Parent-based: parent must be a folder the user has WRITE access to.
 
         Callable with API key (X-Api-Key header) or Bearer token.'
       operationId: create_folder_asset_folder_post
@@ -1185,19 +1212,35 @@ components:
     CreateFolderRequest:
       properties:
         path:
-          type: string
+          anyOf:
+          - type: string
+          - type: 'null'
           title: Path
+        parent_asset_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Parent Asset Id
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
       type: object
-      required:
-      - path
       title: CreateFolderRequest
+      description: Either provide path (create at path) or parent_asset_id + name
+        (create under parent).
     CreateFolderResponse:
       properties:
+        id:
+          type: string
+          title: Id
         path:
           type: string
           title: Path
       type: object
       required:
+      - id
       - path
       title: CreateFolderResponse
     FileReference:
@@ -1243,6 +1286,7 @@ components:
       - image
       - placeholder
       - group_clip
+      - aaf
       - folder
       - project
       - entity
@@ -1328,13 +1372,6 @@ components:
             type: array
           - type: 'null'
           title: Override Entity Ids
-        related_umid_for_master_clip:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          title: Related Umid For Master Clip
       type: object
       required:
       - assets
@@ -1443,6 +1480,17 @@ components:
           - type: string
           - type: 'null'
           title: Capture Device Umid
+        original_file_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Original File Path
+        original_ffprobe_metadata:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Original Ffprobe Metadata
       type: object
       required:
       - sourceName
