@@ -12,6 +12,26 @@ pub struct Cli {
     #[arg(long)]
     pub background: bool,
 
+    /// Disable interaction with the agent (single response, no REPL).
+    #[arg(long)]
+    pub no_interaction: bool,
+
+    /// Use JSON response endpoint (no_interaction implied; SSE tellers.json_result events).
+    #[arg(long)]
+    pub json_response: bool,
+
+    /// Tool(s) to enable (can be repeated). Omit for default tools.
+    #[arg(long = "tool", value_name = "TOOL_ID")]
+    pub tools: Vec<String>,
+
+    /// LLM model to use (e.g. gpt-5.4-2026-03-05).
+    #[arg(long, value_name = "MODEL")]
+    pub llm_model: Option<String>,
+
+    /// Interactively set json_response, no_interaction, tools, and llm_model.
+    #[arg(short, long)]
+    pub interactive: bool,
+
     #[arg()]
     pub prompt: Option<String>,
 

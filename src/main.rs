@@ -35,19 +35,31 @@ fn main() {
         }
         None => {
             if let Some(prompt_text) = cli.prompt {
-                if cli.background {
-                    match commands::prompt::run_background(prompt_text, cli.full_auto) {
-                        Ok(chat_id) => {
-                            // Only print chat id in background mode
-                            println!("{}", chat_id);
+                let mut opts = commands::prompt::PromptOptions::from_cli(
+                    cli.no_interaction,
+                    cli.json_response,
+                    cli.tools.clone(),
+                    cli.llm_model.clone(),
+                );
+                if cli.interactive {
+                    match commands::prompt::run_interactive_options(&opts) {
+                        Ok(interactive_opts) => opts = interactive_opts,
+                        Err(error) => {
+                            eprintln!("error: {}", error);
+                            std::process::exit(1);
                         }
+                    }
+                }
+                if cli.background {
+                    match commands::prompt::run_background(prompt_text, cli.full_auto, opts) {
+                        Ok(result) => println!("{}", result),
                         Err(error) => {
                             eprintln!("error: {}", error);
                             std::process::exit(1);
                         }
                     }
                 } else if let Err(error) =
-                    commands::prompt::run_interactive(prompt_text, cli.full_auto)
+                    commands::prompt::run_interactive(prompt_text, cli.full_auto, opts)
                 {
                     eprintln!("error: {}", error);
                     std::process::exit(1);

@@ -28,10 +28,44 @@ export TELLERS_API_BASE=https://api.tellers.ai
 
 ## Usage
 
-### Chat Commands
+### Chat / Prompt
 
-- `tellers "prompt"` — displays a minimal chat TUI from a streamed response
-- `tellers --full-auto --background "prompt"` — starts a chat and prints only the chat id
+Run a prompt against the Tellers agent:
+
+- **`tellers "prompt"`** — Streams the response and starts a minimal REPL (reply in the terminal; Ctrl-C to exit).
+- **`tellers --background "prompt"`** — Single request, no REPL; prints the response text (or last JSON result when using `--json-response`).
+- **`tellers --full-auto --background "prompt"`** — Same as `--background` with full-auto behavior.
+
+**Prompt options:**
+
+| Flag | Description |
+|------|-------------|
+| `--no-interaction` | Single response only, no REPL. |
+| `--json-response` | Use the JSON endpoint; output is the last `tellers.json_result` event (no interaction implied). |
+| `--tool <TOOL_ID>` | Enable a tool (repeat for multiple). Omit to use default tools from settings. |
+| `--llm-model <MODEL>` | LLM model (e.g. `gpt-5.4-2026-03-05`). |
+| `--interactive`, `-i` | Interactively set options: JSON response (y/N), no interaction (y/N), tool selection (checkbox list), and LLM model (list). |
+
+**Examples:**
+
+```bash
+# Streamed chat with REPL
+tellers "Generate a video, with cats"
+
+# Single response, no follow-up
+tellers --no-interaction "Generate a video, with stock footage video of cats"
+
+# JSON endpoint: only the last JSON result is printed
+tellers --json-response "Generate a video, with stock footage video of cats"
+
+# Choose model and tools via flags
+tellers --llm-model gpt-5.4-2026-03-05 --tool tool_a --tool tool_b "Your prompt"
+
+# Interactive: prompts for JSON, no-interaction, checkbox list for tools, model picker
+tellers -i "Generate a video, with stock footage video of cats"
+```
+
+**Interactive tool selection:** When you use `-i` and the settings include available tools, a TUI checkbox list is shown. Use **↑/↓** to move, **Space** to toggle, **a** to toggle all, **Enter** to confirm. Checkboxes are pre-set from each tool’s `enabled` field in the settings JSON (missing = enabled).
 
 ### Upload Command
 
