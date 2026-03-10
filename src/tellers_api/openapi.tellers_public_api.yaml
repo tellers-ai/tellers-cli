@@ -1305,30 +1305,6 @@ components:
         hd_enabled:
           type: boolean
           title: Hd Enabled
-        promo_product_hunt_enabled:
-          type: boolean
-          title: Promo Product Hunt Enabled
-        cost_per_transcript_character:
-          type: number
-          title: Cost Per Transcript Character
-        cost_upload_video:
-          type: number
-          title: Cost Upload Video
-        cost_script_to_video:
-          type: number
-          title: Cost Script To Video
-        cost_prompt_to_video:
-          type: number
-          title: Cost Prompt To Video
-        cost_generate_clip_sequence:
-          type: number
-          title: Cost Generate Clip Sequence
-        cost_wan_ai_hd_generation:
-          type: number
-          title: Cost Wan Ai Hd Generation
-        cost_wan_ai_sd_generation:
-          type: number
-          title: Cost Wan Ai Sd Generation
         available_agent_tools:
           items:
             additionalProperties: true
@@ -1344,14 +1320,6 @@ components:
       required:
       - maintenance_mode
       - hd_enabled
-      - promo_product_hunt_enabled
-      - cost_per_transcript_character
-      - cost_upload_video
-      - cost_script_to_video
-      - cost_prompt_to_video
-      - cost_generate_clip_sequence
-      - cost_wan_ai_hd_generation
-      - cost_wan_ai_sd_generation
       - available_agent_tools
       - available_llm_models
       title: AppSettings
