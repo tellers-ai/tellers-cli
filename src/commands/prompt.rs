@@ -9,7 +9,6 @@ use tellers_api_client::models::{AgentMessageRequest, AgentMessageRequestWithout
 
 use crate::commands::api_config;
 
-/// Options for the prompt/agent request (no_interaction, json_response, tools, llm_model).
 #[derive(Clone, Default, Debug)]
 pub struct PromptOptions {
     pub no_interaction: bool,
@@ -35,7 +34,6 @@ impl PromptOptions {
 
 }
 
-/// Run interactive option setup: prompt for json_response, no_interaction, tools, llm_model.
 pub fn run_interactive_options(
     base: &PromptOptions,
 ) -> Result<PromptOptions, String> {
@@ -53,7 +51,6 @@ pub fn run_interactive_options(
     let mut stdout = io::stdout();
     let stdin = io::stdin();
 
-    // json_response
     print!("Use JSON response endpoint? [y/N]: ");
     let _ = stdout.flush();
     let mut line = String::new();
@@ -62,7 +59,6 @@ pub fn run_interactive_options(
         opts.json_response = true;
     }
 
-    // no_interaction (skipped when using JSON endpoint; it implies no interaction)
     if !opts.json_response {
         print!("No interaction (single response, no REPL)? [y/N]: ");
         let _ = stdout.flush();
@@ -73,7 +69,6 @@ pub fn run_interactive_options(
         }
     }
 
-    // tools (checkbox list TUI, pre-checked from settings "enabled" field)
     if !tool_ids.is_empty() {
         match crate::tui::run_checkbox_list(
             "Select tools (Space=toggle, Enter=confirm)",
@@ -89,7 +84,6 @@ pub fn run_interactive_options(
         }
     }
 
-    // llm_model
     if !models.is_empty() {
         println!("Available LLM models:");
         for (i, m) in models.iter().enumerate() {
@@ -114,8 +108,6 @@ pub fn run_interactive_options(
     Ok(opts)
 }
 
-/// Fetches GET /settings and returns (available_llm_models, tool_ids, default_checked for tools).
-/// Each tool in available_agent_tools can have "enabled": true/false; missing means enabled (checked by default).
 async fn fetch_models_and_tool_ids(
     cfg: &Configuration,
     api_key: &str,
@@ -247,7 +239,6 @@ pub fn run_interactive(
         return Ok(());
     }
 
-    // Simple REPL: user can reply; Ctrl-C exits process
     let mut stdout = io::stdout();
     let stdin = io::stdin();
     loop {
@@ -328,7 +319,6 @@ async fn send_agent_message_json(
         .to_string();
     let text = resp.text().await.unwrap_or_default();
     if ctype.starts_with("text/event-stream") {
-        // Parse SSE and return only the last tellers.json_result payload.
         let last = parse_last_json_result_from_sse(&text);
         return Ok(last.unwrap_or(text));
     }
@@ -377,7 +367,6 @@ async fn send_agent_message(
         .to_string();
 
     if ctype.starts_with("text/event-stream") {
-        // Collect the full SSE stream and return raw text for display
         let text = resp.text().await.unwrap_or_default();
         return Ok(text);
     }
@@ -493,7 +482,6 @@ async fn send_agent_message_stream(
     Ok(())
 }
 
-/// Parse raw SSE text and return the last `tellers.json_result` event payload as pretty JSON.
 fn parse_last_json_result_from_sse(sse_text: &str) -> Option<String> {
     let normalized = sse_text.replace("\r\n", "\n");
     let mut last_data: Option<String> = None;

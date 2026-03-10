@@ -1,5 +1,3 @@
-//! A simple TUI checkbox list for multi-select. Space toggles, Enter confirms.
-
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
@@ -15,14 +13,6 @@ use ratatui::{
 };
 use std::io;
 
-/// Run a checkbox list TUI. Returns the selected items (those with checkbox checked).
-/// - Space: toggle current item
-/// - a: toggle all
-/// - Enter: confirm and return selected
-/// - q / Esc: confirm and return current selection (same as Enter)
-///
-/// `default_checked`: initial checkbox state per item (true = checked). If shorter than
-/// `items`, remaining items are unchecked; if longer, extra values are ignored.
 pub fn run_checkbox_list(
     title: &str,
     items: Vec<String>,
