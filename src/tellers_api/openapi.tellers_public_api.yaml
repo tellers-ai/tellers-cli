@@ -554,6 +554,46 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /agent/available-llm-models:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Get Available Llm Models
+      operationId: get_available_llm_models_agent_available_llm_models_get
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                title: Response Get Available Llm Models Agent Available Llm Models
+                  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /agent/response:
     post:
       tags:
@@ -583,6 +623,55 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AgentMessageRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /agent/response/json:
+    post:
+      tags:
+      - accepts-api-key
+      - accepts-api-key
+      summary: Process Agent Message Json
+      description: 'Same as POST /response but runs with no_interaction=True. Emits
+        only SSE events
+
+        `event: tellers.json_result` (progressing while running, then done with full
+        result).
+
+        chat_id must be set by the client or is created at the start.'
+      operationId: process_agent_message_json_agent_response_json_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentMessageRequestWithoutNoInteraction'
       responses:
         '200':
           description: Successful Response
@@ -905,6 +994,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /settings:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Get Settings
+      operationId: get_settings_settings_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppSettings'
 components:
   schemas:
     AgentMessageRequest:
@@ -956,18 +1058,24 @@ components:
           - $ref: '#/components/schemas/AppContext'
           - type: 'null'
           description: The app context when the response is sent.
+        llm_model:
+          type: string
+          enum:
+          - gpt-5.4-pro-2026-03-05
+          - gpt-5.4-2026-03-05
+          - gpt-5.3-codex
+          - gpt-5.2-2025-12-11
+          - gpt-5-mini-2025-08-07
+          title: Llm Model
+          description: The model to use to generate the response.
+          default: gpt-5.4-2026-03-05
         tools:
           items:
             type: string
           type: array
           title: Tools
-          description: The tools to use to generate the response
-          default:
-          - generate_video
-          - create_project
-          - describe_video
-          - get_source_media_duration
-          - web_search_preview
+          description: The tools to use to generate the response. Defaults to the
+            same as GET /settings (AVAILABLE_AGENT_TOOLS if set, else all tools).
         custom_agent_id:
           anyOf:
           - type: string
@@ -982,11 +1090,165 @@ components:
             will be executed in parallel. If False, the tool calls will be executed
             sequentially.
           default: false
+        override_llm_verbosity:
+          anyOf:
+          - type: string
+            enum:
+            - low
+            - medium
+            - high
+          - type: 'null'
+          title: Override Llm Verbosity
+          description: Override the verbosity of the LLM, range of number of tokens
+            that can be generated by the LLM, higher values yield more verbose responses.
+        override_llm_reasoning_effort:
+          anyOf:
+          - type: string
+            enum:
+            - none
+            - minimal
+            - low
+            - medium
+            - high
+            - xhigh
+          - type: 'null'
+          title: Override Llm Reasoning Effort
+          description: 'Override the reasoning effort of the LLM, controls reasoning
+            effort: higher values yield more precise but slower responses.'
+        max_mode:
+          type: boolean
+          title: Max Mode
+          description: Whether to enable max mode. If True, the agent will use the
+            maximum number of tokens allowed by the model.
+          default: false
+        no_interaction:
+          type: boolean
+          title: No Interaction
+          description: Whether to disable interaction with the agent. If True, the
+            agent will try to generate a response without interacting with the user.
+          default: false
       additionalProperties: false
       type: object
       required:
       - message
       title: AgentMessageRequest
+    AgentMessageRequestWithoutNoInteraction:
+      properties:
+        message:
+          type: string
+          title: Message
+          description: The message to send to the agent
+        chat_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Chat Id
+          description: Optional chat ID for conversation tracking
+        previous_response_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Previous Response Id
+          description: The ID of the previous response to the model. Use this to create
+            multi-turn conversations.
+        llm_verbosity:
+          type: string
+          enum:
+          - low
+          - medium
+          - high
+          title: Llm Verbosity
+          description: Range of number of tokens that can be generated by the LLM,
+            higher values yield more verbose responses.
+          default: low
+        llm_reasoning_effort:
+          anyOf:
+          - type: string
+            enum:
+            - none
+            - minimal
+            - low
+            - medium
+            - high
+            - xhigh
+          - type: 'null'
+          title: Llm Reasoning Effort
+          description: 'Controls reasoning effort: higher values yield more precise
+            but slower responses.'
+          default: low
+        context:
+          anyOf:
+          - $ref: '#/components/schemas/AppContext'
+          - type: 'null'
+          description: The app context when the response is sent.
+        llm_model:
+          type: string
+          enum:
+          - gpt-5.4-pro-2026-03-05
+          - gpt-5.4-2026-03-05
+          - gpt-5.3-codex
+          - gpt-5.2-2025-12-11
+          - gpt-5-mini-2025-08-07
+          title: Llm Model
+          description: The model to use to generate the response.
+          default: gpt-5.4-2026-03-05
+        tools:
+          items:
+            type: string
+          type: array
+          title: Tools
+          description: The tools to use to generate the response. Defaults to the
+            same as GET /settings (AVAILABLE_AGENT_TOOLS if set, else all tools).
+        custom_agent_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Custom Agent Id
+          description: The ID of the custom agent to use to generate the response.
+            If not provided, the default custom agent will be used.
+        parallel_tool_calls:
+          type: boolean
+          title: Parallel Tool Calls
+          description: Whether to allow parallel tool calls. If True, the tool calls
+            will be executed in parallel. If False, the tool calls will be executed
+            sequentially.
+          default: false
+        override_llm_verbosity:
+          anyOf:
+          - type: string
+            enum:
+            - low
+            - medium
+            - high
+          - type: 'null'
+          title: Override Llm Verbosity
+          description: Override the verbosity of the LLM, range of number of tokens
+            that can be generated by the LLM, higher values yield more verbose responses.
+        override_llm_reasoning_effort:
+          anyOf:
+          - type: string
+            enum:
+            - none
+            - minimal
+            - low
+            - medium
+            - high
+            - xhigh
+          - type: 'null'
+          title: Override Llm Reasoning Effort
+          description: 'Override the reasoning effort of the LLM, controls reasoning
+            effort: higher values yield more precise but slower responses.'
+        max_mode:
+          type: boolean
+          title: Max Mode
+          description: Whether to enable max mode. If True, the agent will use the
+            maximum number of tokens allowed by the model.
+          default: false
+      additionalProperties: false
+      type: object
+      required:
+      - message
+      title: AgentMessageRequestWithoutNoInteraction
     AppContext:
       properties:
         current_playback_time:
@@ -1035,6 +1297,64 @@ components:
       additionalProperties: false
       type: object
       title: AppContext
+    AppSettings:
+      properties:
+        maintenance_mode:
+          type: boolean
+          title: Maintenance Mode
+        hd_enabled:
+          type: boolean
+          title: Hd Enabled
+        promo_product_hunt_enabled:
+          type: boolean
+          title: Promo Product Hunt Enabled
+        cost_per_transcript_character:
+          type: number
+          title: Cost Per Transcript Character
+        cost_upload_video:
+          type: number
+          title: Cost Upload Video
+        cost_script_to_video:
+          type: number
+          title: Cost Script To Video
+        cost_prompt_to_video:
+          type: number
+          title: Cost Prompt To Video
+        cost_generate_clip_sequence:
+          type: number
+          title: Cost Generate Clip Sequence
+        cost_wan_ai_hd_generation:
+          type: number
+          title: Cost Wan Ai Hd Generation
+        cost_wan_ai_sd_generation:
+          type: number
+          title: Cost Wan Ai Sd Generation
+        available_agent_tools:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Available Agent Tools
+        available_llm_models:
+          items:
+            type: string
+          type: array
+          title: Available Llm Models
+      type: object
+      required:
+      - maintenance_mode
+      - hd_enabled
+      - promo_product_hunt_enabled
+      - cost_per_transcript_character
+      - cost_upload_video
+      - cost_script_to_video
+      - cost_prompt_to_video
+      - cost_generate_clip_sequence
+      - cost_wan_ai_hd_generation
+      - cost_wan_ai_sd_generation
+      - available_agent_tools
+      - available_llm_models
+      title: AppSettings
     AssetUploadRequest:
       properties:
         content_length:
