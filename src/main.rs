@@ -25,6 +25,22 @@ fn main() {
                         std::process::exit(1);
                     }
                 }
+                commands::asset::AssetCommand::SetAnonymousRead(args) => {
+                    if let Err(error) = commands::asset::set_anonymous_read_run(args) {
+                        eprintln!("error: {}", error);
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+        Some(cli::Command::Project(project_args)) => {
+            match project_args.command {
+                commands::project::ProjectCommand::Export(export_args) => {
+                    if let Err(error) = commands::project::export_run(export_args) {
+                        eprintln!("error: {}", error);
+                        std::process::exit(1);
+                    }
+                }
             }
         }
         Some(cli::Command::Upload(upload_args)) => {
