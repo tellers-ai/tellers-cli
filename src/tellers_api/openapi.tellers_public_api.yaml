@@ -308,6 +308,103 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /asset/{asset_id}/visibility:
+    put:
+      tags:
+      - accepts-api-key
+      summary: Set Asset Visibility
+      description: Set visibility (is_public_read) for a single asset (SSE). WRITE
+        required.
+      operationId: set_asset_visibility_asset__asset_id__visibility_put
+      parameters:
+      - name: asset_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Asset Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetVisibilityRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /asset/{asset_id}/reference:
+    put:
+      tags:
+      - accepts-api-key
+      summary: Set Asset Reference
+      description: Set reference flag for a single asset (SSE). WRITE required.
+      operationId: set_asset_reference_asset__asset_id__reference_put
+      parameters:
+      - name: asset_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Asset Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetReferenceRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /asset/most_recent:
     get:
       tags:
@@ -453,6 +550,77 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CreateFolderResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /project/{project_id}/export:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Export Project
+      description: 'Start async export of project to MP4 at one or more resolutions.
+        Creates the export asset
+
+        in the API, then enqueues a task that generates each rendition. The export
+        appears as a
+
+        new video asset in the project''s export folder (project name + date + .mp4),
+        with multiple
+
+        renditions (e.g. 480p, 720p, 1080p, 4k) attached to that asset.
+
+
+        Returns task_id and asset_id. Poll GET /task/{task_id} for completion; result
+        includes asset_id.'
+      operationId: export_project_project__project_id__export_post
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Project Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                enum:
+                - 480p
+                - 720p
+                - 1080p
+                - 4k
+                type: string
+              description: List of resolutions to export (e.g. ["720p", "1080p"])
+              title: Renditions
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportProjectResponse'
         '422':
           description: Validation Error
           content:
@@ -994,6 +1162,94 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /create:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Create Agent Stream
+      description: 'SSE stream for agent creation. GET with query params; same behavior
+        as
+
+        POST /agent/response/json. Emits event: tellers.json_result (progressing,
+        then done).'
+      operationId: create_agent_stream_create_get
+      parameters:
+      - name: prompt
+        in: query
+        required: true
+        schema:
+          type: string
+          description: The message/prompt to send to the agent
+          title: Prompt
+        description: The message/prompt to send to the agent
+      - name: tools
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: array
+            items:
+              type: string
+          - type: 'null'
+          description: Tool IDs to use. If omitted, defaults to available agent tools.
+          title: Tools
+        description: Tool IDs to use. If omitted, defaults to available agent tools.
+      - name: llm_model
+        in: query
+        required: false
+        schema:
+          type: string
+          description: The LLM model to use for the response.
+          default: gpt-5.4-2026-03-05
+          title: Llm Model
+        description: The LLM model to use for the response.
+      - name: parallel_tool_calls
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Whether to allow parallel tool calls.
+          default: false
+          title: Parallel Tool Calls
+        description: Whether to allow parallel tool calls.
+      - name: chat_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: Optional chat ID for conversation tracking. Created if omitted.
+          title: Chat Id
+        description: Optional chat ID for conversation tracking. Created if omitted.
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /settings:
     get:
       tags:
@@ -1323,6 +1579,15 @@ components:
       - available_agent_tools
       - available_llm_models
       title: AppSettings
+    AssetReferenceRequest:
+      properties:
+        is_reference:
+          type: boolean
+          title: Is Reference
+      type: object
+      required:
+      - is_reference
+      title: AssetReferenceRequest
     AssetUploadRequest:
       properties:
         content_length:
@@ -1394,6 +1659,15 @@ components:
       - upload_id
       - asset_id
       title: AssetUploadResponse
+    AssetVisibilityRequest:
+      properties:
+        is_public_read:
+          type: boolean
+          title: Is Public Read
+      type: object
+      required:
+      - is_public_read
+      title: AssetVisibilityRequest
     ChatHistoryResponse:
       properties:
         id:
@@ -1531,6 +1805,21 @@ components:
       - id
       - path
       title: CreateFolderResponse
+    ExportProjectResponse:
+      properties:
+        task_id:
+          type: string
+          title: Task Id
+        asset_id:
+          type: string
+          title: Asset Id
+      type: object
+      required:
+      - task_id
+      - asset_id
+      title: ExportProjectResponse
+      description: 'Response for POST /project/{project_id}/export: task_id and the
+        new export asset_id.'
     FileReference:
       properties:
         file_name:
