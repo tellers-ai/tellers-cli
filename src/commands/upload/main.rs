@@ -95,7 +95,7 @@ pub struct UploadCmdArgs {
     #[arg(long, default_value_t = false)]
     pub dry_run: bool,
 
-    /// Proxy heights to request from the server after upload (e.g. 720, 1080). Omit for server default; use empty (e.g. --generate-proxy) for none (e.g. when using --local-encoding).
+    /// Proxy heights to request from the server after upload (e.g. 720, 1080). Used when --local-encoding is false (omit → default 720; use empty --generate-proxy for none). When --local-encoding is true, omit → no server proxies (qualities control local encoding).
     #[arg(long, value_delimiter = ',', num_args = 0.., value_parser = parse_generate_proxy)]
     pub generate_proxy: Option<Vec<GenerateProxy>>,
 
@@ -498,6 +498,10 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
         requests.push(req);
     }
 
+    // local_encoding false path: default generate_proxy to 720 when omitted
+    let effective_generate_proxy =
+        args.generate_proxy.clone().or_else(|| Some(vec![GenerateProxy::Variant720]));
+
     tokio::runtime::Runtime::new()
         .map_err(|e| format!("failed to start runtime: {}", e))?
         .block_on(async move {
@@ -536,7 +540,7 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
                 bearer_header.as_deref(),
                 &related_umids_per_file,
                 args.disable_description_generation,
-                args.generate_proxy.as_ref(),
+                effective_generate_proxy.as_ref(),
             )
             .await;
 
@@ -715,7 +719,14 @@ fn run_two_queue_pipeline(
     let upload_request_id = upload_request_id.to_string();
     let disable_description_generation = args.disable_description_generation;
     let local_encoding = args.local_encoding;
-    let generate_proxy = args.generate_proxy.clone();
+    // local_encoding true → use qualities (no server proxies when omit); local_encoding false → use generate_proxy (default 720 when omit)
+    let generate_proxy = args.generate_proxy.clone().or_else(|| {
+        if args.local_encoding {
+            Some(vec![]) // no server proxies; user relies on qualities
+        } else {
+            Some(vec![GenerateProxy::Variant720]) // server path: default 720
+        }
+    });
 
     let block_result = rt.block_on(async move {
         // Start render loop inside runtime so tokio::spawn has a current runtime
@@ -824,9 +835,8 @@ fn run_two_queue_pipeline(
                 );
                 preproc_req.generate_time_based_media_description =
                     Some(!disable_description_generation);
-                // Use --generate-proxy if set; otherwise when local encoding use empty (no server proxies); else leave unset for server default.
-                preproc_req.generate_proxy =
-                    generate_proxy.clone().or_else(|| if local_encoding { Some(vec![]) } else { None });
+                // Effective generate_proxy: explicit value, or (local_encoding → none, else → default 720).
+                preproc_req.generate_proxy = generate_proxy.clone();
                 // related_umid_for_master_clip removed in current API; use override_entity_ids if needed
                 if !file_related_umids.is_empty() {
                     preproc_req.override_entity_ids = Some(Some(file_related_umids));
