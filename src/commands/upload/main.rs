@@ -718,7 +718,6 @@ fn run_two_queue_pipeline(
     let user_id = user_id.to_string();
     let upload_request_id = upload_request_id.to_string();
     let disable_description_generation = args.disable_description_generation;
-    let local_encoding = args.local_encoding;
     // local_encoding true → use qualities (no server proxies when omit); local_encoding false → use generate_proxy (default 720 when omit)
     let generate_proxy = args.generate_proxy.clone().or_else(|| {
         if args.local_encoding {

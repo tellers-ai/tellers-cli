@@ -1947,17 +1947,17 @@ components:
           title: Override Entity Ids
         generate_proxy:
           items:
-            type: integer
+            type: string
             enum:
-            - 360
-            - 480
-            - 720
-            - 1080
-            - 2160
+            - '360'
+            - '480'
+            - '720'
+            - '1080'
+            - '2160'
           type: array
           title: Generate Proxy
           default:
-          - 720
+          - '720'
       type: object
       required:
       - assets
