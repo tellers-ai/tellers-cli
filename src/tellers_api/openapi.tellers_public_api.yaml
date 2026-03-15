@@ -1558,9 +1558,6 @@ components:
         maintenance_mode:
           type: boolean
           title: Maintenance Mode
-        hd_enabled:
-          type: boolean
-          title: Hd Enabled
         available_agent_tools:
           items:
             additionalProperties: true
@@ -1575,7 +1572,6 @@ components:
       type: object
       required:
       - maintenance_mode
-      - hd_enabled
       - available_agent_tools
       - available_llm_models
       title: AppSettings
@@ -1949,6 +1945,19 @@ components:
             type: array
           - type: 'null'
           title: Override Entity Ids
+        generate_proxy:
+          items:
+            type: integer
+            enum:
+            - 360
+            - 480
+            - 720
+            - 1080
+            - 2160
+          type: array
+          title: Generate Proxy
+          default:
+          - 720
       type: object
       required:
       - assets
