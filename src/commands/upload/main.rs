@@ -30,6 +30,7 @@ use tokio::sync::mpsc as tokio_mpsc;
 
 use tellers_api_client::apis::accepts_api_key_api as api;
 use tellers_api_client::apis::configuration::Configuration;
+use tellers_api_client::models::process_assets_request::GenerateProxy;
 use tellers_api_client::models::{
     AssetUploadRequest, AssetUploadResponse, CreateFolderRequest, ProcessAssetsRequest,
     SourceFileInfo,
@@ -94,6 +95,10 @@ pub struct UploadCmdArgs {
     #[arg(long, default_value_t = false)]
     pub dry_run: bool,
 
+    /// Proxy heights to request from the server after upload (e.g. 720, 1080). Omit for server default; use empty (e.g. --generate-proxy) for none (e.g. when using --local-encoding).
+    #[arg(long, value_delimiter = ',', num_args = 0.., value_parser = parse_generate_proxy)]
+    pub generate_proxy: Option<Vec<GenerateProxy>>,
+
     #[arg(long, default_value_t = false)]
     pub disable_description_generation: bool,
 }
@@ -109,6 +114,20 @@ enum DownscaleWork {
     Video(PathBuf),
     Audio(PathBuf),
     Passthrough(PathBuf),
+}
+
+fn parse_generate_proxy(s: &str) -> Result<GenerateProxy, String> {
+    match s.trim() {
+        "360" => Ok(GenerateProxy::Variant360),
+        "480" => Ok(GenerateProxy::Variant480),
+        "720" => Ok(GenerateProxy::Variant720),
+        "1080" => Ok(GenerateProxy::Variant1080),
+        "2160" => Ok(GenerateProxy::Variant2160),
+        _ => Err(format!(
+            "generate_proxy must be one of 360, 480, 720, 1080, 2160, got '{}'",
+            s
+        )),
+    }
 }
 
 fn has_extension(file_path: &PathBuf, extensions: &[String]) -> bool {
@@ -517,6 +536,7 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
                 bearer_header.as_deref(),
                 &related_umids_per_file,
                 args.disable_description_generation,
+                args.generate_proxy.as_ref(),
             )
             .await;
 
@@ -694,6 +714,8 @@ fn run_two_queue_pipeline(
     let user_id = user_id.to_string();
     let upload_request_id = upload_request_id.to_string();
     let disable_description_generation = args.disable_description_generation;
+    let local_encoding = args.local_encoding;
+    let generate_proxy = args.generate_proxy.clone();
 
     let block_result = rt.block_on(async move {
         // Start render loop inside runtime so tokio::spawn has a current runtime
@@ -802,6 +824,9 @@ fn run_two_queue_pipeline(
                 );
                 preproc_req.generate_time_based_media_description =
                     Some(!disable_description_generation);
+                // Use --generate-proxy if set; otherwise when local encoding use empty (no server proxies); else leave unset for server default.
+                preproc_req.generate_proxy =
+                    generate_proxy.clone().or_else(|| if local_encoding { Some(vec![]) } else { None });
                 // related_umid_for_master_clip removed in current API; use override_entity_ids if needed
                 if !file_related_umids.is_empty() {
                     preproc_req.override_entity_ids = Some(Some(file_related_umids));
@@ -1020,6 +1045,7 @@ async fn upload_to_presigned_urls(
     bearer_opt: Option<&str>,
     related_umids_per_file: &[Vec<String>],
     disable_description_generation: bool,
+    generate_proxy: Option<&Vec<GenerateProxy>>,
 ) -> Result<(), String> {
     let http = Arc::new(
         reqwest::Client::builder()
@@ -1055,6 +1081,7 @@ async fn upload_to_presigned_urls(
         let cfg_clone = cfg.clone();
         let api_key_clone = api_key.clone();
         let bearer_clone = bearer_opt.clone();
+        let generate_proxy_clone = generate_proxy.cloned();
 
         let file_name = file_path
             .file_name()
@@ -1101,6 +1128,9 @@ async fn upload_to_presigned_urls(
                 );
                 preproc_req.generate_time_based_media_description =
                     Some(!disable_description_generation);
+                if let Some(proxy) = generate_proxy_clone.as_ref() {
+                    preproc_req.generate_proxy = Some(proxy.clone());
+                }
                 if !file_related_umids.is_empty() {
                     preproc_req.override_entity_ids = Some(Some(file_related_umids));
                 }

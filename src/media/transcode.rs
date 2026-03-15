@@ -3,7 +3,34 @@ use ffmpeg_sidecar::command::FfmpegCommand;
 use ffmpeg_sidecar::event::{FfmpegEvent, LogLevel};
 use std::path::PathBuf;
 
+use crate::media::metadata::get_ffprobe_json;
 use crate::media::video_quality::VideoQuality;
+
+/// Returns true if the first video stream is interlaced (field_order is tb, bt, tt, or bb).
+fn is_interlaced(path: &PathBuf) -> Result<bool, String> {
+    let probe = match get_ffprobe_json(path)? {
+        Some(p) => p,
+        None => return Ok(false),
+    };
+    let streams = probe
+        .get("streams")
+        .and_then(|s| s.as_array())
+        .ok_or_else(|| "no streams in ffprobe output".to_string())?;
+    let video_stream = streams
+        .iter()
+        .find(|s| s.get("codec_type").and_then(|c| c.as_str()) == Some("video"))
+        .ok_or_else(|| "no video stream".to_string())?;
+    let field_order = video_stream
+        .get("field_order")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown")
+        .to_lowercase();
+    // Interlaced: tb, bt, tt, bb. Progressive or unknown => not interlaced.
+    Ok(matches!(
+        field_order.as_str(),
+        "tb" | "bt" | "tt" | "bb"
+    ))
+}
 
 /// Parse ffmpeg time string e.g. "00:01:23.45" into seconds.
 fn parse_ffmpeg_time(s: &str) -> Option<f64> {
@@ -123,6 +150,13 @@ pub fn create_rendition(
         }
     }
 
+    let interlaced = is_interlaced(input).unwrap_or(false);
+    if interlaced {
+        if let Some(f) = info_cb {
+            f("Input is interlaced; deinterlacing to progressive");
+        }
+    }
+
     let mut cmd = FfmpegCommand::new();
     cmd.overwrite()
         .input(input.to_string_lossy())
@@ -131,7 +165,14 @@ pub fn create_rendition(
 
     if let Some(q) = definition.quality {
         let height = q.height();
-        cmd.args(["-vf", &format!("scale=-2:{}", height)]);
+        let vf = if interlaced {
+            format!("bwdif=0:-1:0,scale=-2:{}", height)
+        } else {
+            format!("scale=-2:{}", height)
+        };
+        cmd.args(["-vf", &vf]);
+    } else if interlaced {
+        cmd.args(["-vf", "bwdif=0:-1:0"]);
     }
     if let Some(p) = definition.preset {
         cmd.preset(p.as_str());
