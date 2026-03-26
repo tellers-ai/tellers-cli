@@ -29,6 +29,7 @@ struct TaskProgress {
     total_bytes: u64,
     uploaded_bytes: u64,
     completed: bool,
+    failed: bool,
 }
 
 #[derive(Clone)]
@@ -168,6 +169,7 @@ impl ProgressHandle {
                 total_bytes,
                 uploaded_bytes: 0,
                 completed: false,
+                failed: false,
             },
         );
         Ok(())
@@ -213,12 +215,13 @@ impl ProgressHandle {
     pub fn finish_task(&self, task_id: TaskId, success: bool) -> Result<(), String> {
         let mut state = self.state.lock().unwrap();
         if let Some(task) = state.in_progress.get_mut(&task_id) {
+            task.completed = true;
+            task.failed = !success;
             if success {
-                task.completed = true;
                 task.progress = 100.0;
                 state.completed += 1;
-                // Don't add to messages - task stays visible in the list with completion status
             }
+            // Don't add to messages - task stays visible in the list with completion status
         }
         Ok(())
     }
@@ -333,7 +336,9 @@ pub fn draw_ui_internal(frame: &mut Frame, state: &ProgressState) {
         .iter()
         .map(|(_, task)| {
             let label = truncate_string(&task.label, list_area.width.saturating_sub(4) as usize);
-            let (icon, color) = if task.completed {
+            let (icon, color) = if task.failed {
+                ("✗", Color::Red)
+            } else if task.completed {
                 ("✓", Color::Green)
             } else {
                 ("●", Color::LightGreen)
@@ -376,7 +381,9 @@ pub fn draw_ui_internal(frame: &mut Frame, state: &ProgressState) {
     }
 
     for (i, (_, task)) in tasks_to_show.iter().enumerate() {
-        let gauge_color = if task.completed {
+        let gauge_color = if task.failed {
+            Color::Red
+        } else if task.completed {
             Color::Green
         } else {
             Color::Yellow

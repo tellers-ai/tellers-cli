@@ -1420,7 +1420,11 @@ async fn wait_for_asset_processing_status(
 
         if all_done {
             for (task_id, asset_id) in uploaded_asset_ids.iter().enumerate() {
-                let _ = status_handle.finish_task(task_id, true);
+                let has_error = progress_by_asset
+                    .get(asset_id)
+                    .map(|p| has_error_for_mode(mode, p))
+                    .unwrap_or(false);
+                let _ = status_handle.finish_task(task_id, !has_error);
                 if let Some(asset_progress) = progress_by_asset.get(asset_id) {
                     if let Some((status, _)) = asset_progress.downscaling.as_ref() {
                         if status.eq_ignore_ascii_case("error")
