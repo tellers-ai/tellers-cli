@@ -49,6 +49,7 @@ pub(crate) struct ProgressState {
     title: String,
     total_tasks: usize,
     completed: usize,
+    show_elapsed: bool,
     in_progress: BTreeMap<TaskId, TaskProgress>,
     recent_messages: Vec<Message>,
     max_messages: usize,
@@ -70,6 +71,7 @@ impl InlineProgress {
                 title: title.into(),
                 total_tasks,
                 completed: 0,
+                show_elapsed: true,
                 in_progress: BTreeMap::new(),
                 recent_messages: Vec::new(),
                 max_messages: 5,
@@ -182,6 +184,32 @@ impl ProgressHandle {
         Ok(())
     }
 
+    pub fn set_task_label(&self, task_id: TaskId, label: impl Into<String>) -> Result<(), String> {
+        let mut state = self.state.lock().unwrap();
+        if let Some(task) = state.in_progress.get_mut(&task_id) {
+            task.label = label.into();
+        }
+        Ok(())
+    }
+
+    pub fn set_task_progress_pct(&self, task_id: TaskId, progress_pct: f64) -> Result<(), String> {
+        let mut state = self.state.lock().unwrap();
+        if let Some(task) = state.in_progress.get_mut(&task_id) {
+            let clamped = progress_pct.clamp(0.0, 100.0);
+            task.progress = clamped;
+            if task.total_bytes > 0 {
+                task.uploaded_bytes = ((clamped / 100.0) * task.total_bytes as f64) as u64;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn set_show_elapsed(&self, show_elapsed: bool) -> Result<(), String> {
+        let mut state = self.state.lock().unwrap();
+        state.show_elapsed = show_elapsed;
+        Ok(())
+    }
+
     pub fn finish_task(&self, task_id: TaskId, success: bool) -> Result<(), String> {
         let mut state = self.state.lock().unwrap();
         if let Some(task) = state.in_progress.get_mut(&task_id) {
@@ -253,9 +281,9 @@ pub fn draw_ui_internal(frame: &mut Frame, state: &ProgressState) {
     let bottom_area = areas[2];
 
     let horizontal_areas = Layout::horizontal([
-        Constraint::Percentage(40),
+        Constraint::Percentage(72),
         Constraint::Length(3),
-        Constraint::Percentage(57),
+        Constraint::Percentage(25),
     ])
     .split(middle_area);
     let list_area = horizontal_areas[0];
@@ -304,22 +332,26 @@ pub fn draw_ui_internal(frame: &mut Frame, state: &ProgressState) {
     let items: Vec<ListItem> = tasks_to_show
         .iter()
         .map(|(_, task)| {
-            let elapsed_ms = task.started_at.elapsed().as_millis();
-            let label = truncate_string(&task.label, 28);
+            let label = truncate_string(&task.label, list_area.width.saturating_sub(4) as usize);
             let (icon, color) = if task.completed {
                 ("✓", Color::Green)
             } else {
                 ("●", Color::LightGreen)
             };
 
-            ListItem::new(Line::from(vec![
+            let mut spans = vec![
                 Span::raw(format!("{} ", icon)),
                 Span::styled(
                     label,
                     Style::default().fg(color).add_modifier(Modifier::BOLD),
                 ),
-                Span::raw(format!(" ({}ms)", elapsed_ms)),
-            ]))
+            ];
+            if state.show_elapsed {
+                let elapsed_ms = task.started_at.elapsed().as_millis();
+                spans.push(Span::raw(format!(" ({}ms)", elapsed_ms)));
+            }
+
+            ListItem::new(Line::from(spans))
         })
         .collect();
 

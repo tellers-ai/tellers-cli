@@ -1,14 +1,8 @@
 use clap::{Args, Subcommand};
-use crossterm::{
-    cursor::MoveUp,
-    execute,
-    terminal::{Clear, ClearType},
-};
 use regex::Regex;
 use std::fs::File;
 use std::collections::HashMap;
 use std::io::Read;
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -1230,6 +1224,34 @@ fn all_done_for_mode(mode: StatusWaitMode, progress: &AssetTaskProgress) -> bool
     }
 }
 
+fn is_error_status(status: &str) -> bool {
+    let s = status.trim().to_ascii_lowercase();
+    matches!(s.as_str(), "error" | "failed")
+}
+
+fn has_error_for_mode(mode: StatusWaitMode, progress: &AssetTaskProgress) -> bool {
+    let has_error = |entry: &Option<(String, f64)>| -> bool {
+        entry
+            .as_ref()
+            .map(|(status, _)| is_error_status(status))
+            .unwrap_or(false)
+    };
+    match mode {
+        StatusWaitMode::Done => {
+            has_error(&progress.analyze_asset)
+                || has_error(&progress.downscaling)
+                || has_error(&progress.deep_analyze)
+        }
+        StatusWaitMode::Analysed => has_error(&progress.analyze_asset) || has_error(&progress.deep_analyze),
+        StatusWaitMode::Transcoded => has_error(&progress.downscaling),
+    }
+}
+
+fn asset_done_for_mode(mode: StatusWaitMode, progress: &AssetTaskProgress) -> bool {
+    // If one watched task errors for this asset, stop waiting for other tasks of this asset.
+    has_error_for_mode(mode, progress) || all_done_for_mode(mode, progress)
+}
+
 fn task_progress_to_percent(progress: f64) -> f64 {
     if (0.0..=1.0).contains(&progress) {
         progress * 100.0
@@ -1238,33 +1260,47 @@ fn task_progress_to_percent(progress: f64) -> f64 {
     }
 }
 
+fn render_status_row(
+    asset_id: &str,
+    progress: &AssetTaskProgress,
+) -> String {
+    let analyze = progress
+        .analyze_asset
+        .as_ref()
+        .map(|(s, p)| format!("{}:{:.0}%", s, task_progress_to_percent(*p)))
+        .unwrap_or_else(|| "pending".to_string());
+    let downscaling = progress
+        .downscaling
+        .as_ref()
+        .map(|(s, p)| format!("{}:{:.0}%", s, task_progress_to_percent(*p)))
+        .unwrap_or_else(|| "pending".to_string());
+    let deep_analyze = progress
+        .deep_analyze
+        .as_ref()
+        .map(|(s, p)| format!("{}:{:.0}%", s, task_progress_to_percent(*p)))
+        .unwrap_or_else(|| "pending".to_string());
+    let asset_display = if asset_id.len() > 20 {
+        format!("{}...{}", &asset_id[..8], &asset_id[asset_id.len().saturating_sub(8)..])
+    } else {
+        asset_id.to_string()
+    };
+    format!(
+        "asset_id={} | analyze asset={} | downscaling={} | deep analyze={}",
+        asset_display, analyze, downscaling, deep_analyze
+    )
+}
+
 fn render_status_rows(
     ordered_asset_ids: &[String],
     progress_by_asset: &HashMap<String, AssetTaskProgress>,
-) {
+) -> Vec<String> {
+    let mut rows = Vec::with_capacity(ordered_asset_ids.len());
     for asset_id in ordered_asset_ids {
         if let Some(progress) = progress_by_asset.get(asset_id) {
-            let analyze = progress
-                .analyze_asset
-                .as_ref()
-                .map(|(s, p)| format!("{}:{:.0}%", s, task_progress_to_percent(*p)))
-                .unwrap_or_else(|| "pending".to_string());
-            let downscaling = progress
-                .downscaling
-                .as_ref()
-                .map(|(s, p)| format!("{}:{:.0}%", s, task_progress_to_percent(*p)))
-                .unwrap_or_else(|| "pending".to_string());
-            let deep_analyze = progress
-                .deep_analyze
-                .as_ref()
-                .map(|(s, p)| format!("{}:{:.0}%", s, task_progress_to_percent(*p)))
-                .unwrap_or_else(|| "pending".to_string());
-            println!(
-                "asset_id={} [analyze asset={}, downscaling={}, deep analyze={}]",
-                asset_id, analyze, downscaling, deep_analyze
-            );
+            rows.push(render_status_row(asset_id, progress));
         }
     }
+    rows
 }
 
 async fn wait_for_asset_processing_status(
@@ -1286,7 +1322,14 @@ async fn wait_for_asset_processing_status(
         .collect();
 
     output::info("Polling /users/tasks every 2s for processing status...");
-    let mut rendered_rows: usize = 0;
+    let mut status_progress =
+        crate::tui::InlineProgress::new("Processing Uploaded Assets", uploaded_asset_ids.len())?;
+    let status_handle = status_progress.clone_handle();
+    let _ = status_handle.set_show_elapsed(false);
+    for (task_id, asset_id) in uploaded_asset_ids.iter().enumerate() {
+        let _ = status_handle.start_task(task_id, asset_id.clone(), 100);
+    }
+    let status_render_handle = status_progress.start_render_loop(status_handle.clone());
     loop {
         let finish_before_seconds = (script_start.elapsed().as_secs() as i32) + 60;
         let tasks = api::get_tasks_users_tasks_get(
@@ -1319,26 +1362,82 @@ async fn wait_for_asset_processing_status(
             }
         }
 
-        // Redraw the same rows in-place so polling does not spam new lines.
-        if rendered_rows > 0 {
-            let mut out = std::io::stdout();
-            for _ in 0..rendered_rows {
-                let _ = execute!(out, MoveUp(1), Clear(ClearType::CurrentLine));
+        let rendered_rows = render_status_rows(uploaded_asset_ids, &progress_by_asset);
+        for (task_id, asset_id) in uploaded_asset_ids.iter().enumerate() {
+            if let Some(asset_progress) = progress_by_asset.get(asset_id) {
+                let row = rendered_rows
+                    .get(task_id)
+                    .cloned()
+                    .unwrap_or_else(|| render_status_row(asset_id, asset_progress));
+                let _ = status_handle.set_task_label(task_id, row);
+                let pct = match mode {
+                    StatusWaitMode::Done => {
+                        let mut sum = 0.0;
+                        let mut count = 0.0;
+                        if let Some((_, p)) = asset_progress.analyze_asset.as_ref() {
+                            sum += task_progress_to_percent(*p);
+                            count += 1.0;
+                        }
+                        if let Some((_, p)) = asset_progress.downscaling.as_ref() {
+                            sum += task_progress_to_percent(*p);
+                            count += 1.0;
+                        }
+                        if let Some((_, p)) = asset_progress.deep_analyze.as_ref() {
+                            sum += task_progress_to_percent(*p);
+                            count += 1.0;
+                        }
+                        if count > 0.0 { sum / count } else { 0.0 }
+                    }
+                    StatusWaitMode::Analysed => {
+                        let mut sum = 0.0;
+                        let mut count = 0.0;
+                        if let Some((_, p)) = asset_progress.analyze_asset.as_ref() {
+                            sum += task_progress_to_percent(*p);
+                            count += 1.0;
+                        }
+                        if let Some((_, p)) = asset_progress.deep_analyze.as_ref() {
+                            sum += task_progress_to_percent(*p);
+                            count += 1.0;
+                        }
+                        if count > 0.0 { sum / count } else { 0.0 }
+                    }
+                    StatusWaitMode::Transcoded => asset_progress
+                        .downscaling
+                        .as_ref()
+                        .map(|(_, p)| task_progress_to_percent(*p))
+                        .unwrap_or(0.0),
+                };
+                let _ = status_handle.set_task_progress_pct(task_id, pct);
             }
         }
-        render_status_rows(uploaded_asset_ids, &progress_by_asset);
-        rendered_rows = uploaded_asset_ids.len();
-        let _ = std::io::stdout().flush();
 
         let all_done = uploaded_asset_ids.iter().all(|asset_id| {
             progress_by_asset
                 .get(asset_id)
-                .map(|p| all_done_for_mode(mode, p))
+                .map(|p| asset_done_for_mode(mode, p))
                 .unwrap_or(false)
         });
+
         if all_done {
+            for (task_id, asset_id) in uploaded_asset_ids.iter().enumerate() {
+                let _ = status_handle.finish_task(task_id, true);
+                if let Some(asset_progress) = progress_by_asset.get(asset_id) {
+                    if let Some((status, _)) = asset_progress.downscaling.as_ref() {
+                        if status.eq_ignore_ascii_case("error")
+                            || status.eq_ignore_ascii_case("failed")
+                        {
+                            let _ = status_handle.add_warning(format!(
+                                "asset_id={} reached terminal status with downscaling={}",
+                                asset_id, status
+                            ));
+                        }
+                    }
+                }
+            }
+            crate::tui::InlineProgress::stop_render_loop(status_render_handle).await;
+            status_progress.finish()?;
             println!();
-            output::success("All watched tasks reached success/error terminal state");
+            output::success("All watched assets reached terminal state for selected tasks");
             break;
         }
 
