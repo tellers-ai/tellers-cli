@@ -1,8 +1,14 @@
 use base64::Engine;
 
 pub fn get_user_id_from_bearer(bearer: Option<&str>) -> String {
+    get_user_id_from_bearer_with_logging(bearer, true)
+}
+
+pub fn get_user_id_from_bearer_with_logging(bearer: Option<&str>, with_logging: bool) -> String {
     if bearer.is_none() || bearer.map(|s| s.is_empty()).unwrap_or(true) {
-        crate::output::warning("Bearer token is None or empty, using default user_id");
+        if with_logging {
+            crate::output::warning("Bearer token is None or empty, using default user_id");
+        }
         return "__current_user__".to_string();
     }
 
@@ -15,14 +21,18 @@ pub fn get_user_id_from_bearer(bearer: Option<&str>) -> String {
 
     match decode_jwt_sub(token) {
         Ok(user_id) => {
-            crate::output::info(format!("Successfully extracted user_id: {}", user_id));
+            if with_logging {
+                crate::output::info(format!("Successfully extracted user_id: {}", user_id));
+            }
             user_id
         }
         Err(e) => {
-            crate::output::warning(format!(
-                "Failed to decode JWT: {}, using default user_id",
-                e
-            ));
+            if with_logging {
+                crate::output::warning(format!(
+                    "Failed to decode JWT: {}, using default user_id",
+                    e
+                ));
+            }
             "__current_user__".to_string()
         }
     }

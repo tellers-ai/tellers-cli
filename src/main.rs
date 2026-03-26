@@ -44,8 +44,14 @@ fn main() {
             }
         }
         Some(cli::Command::Upload(upload_args)) => {
+            let suppress_plain_error = matches!(
+                &upload_args.command,
+                commands::upload::UploadCommand::Upload(args) if args.machine_readable
+            );
             if let Err(error) = commands::upload::run(upload_args) {
-                eprintln!("error: {}", error);
+                if !suppress_plain_error {
+                    eprintln!("error: {}", error);
+                }
                 std::process::exit(1);
             }
         }
