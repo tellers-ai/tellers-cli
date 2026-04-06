@@ -1,6 +1,6 @@
 target/
 **/*.rs.bk
-Cargo.lock
+# Cargo.lock is intentionally tracked for binaries (ensures reproducible release builds)
 .DS_Store
 .idea/
 .vscode/
