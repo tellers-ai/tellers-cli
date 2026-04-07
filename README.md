@@ -2,9 +2,16 @@
 
 Tellers CLI to interact with `tellers.ai` from the terminal.
 
-## Quickstart
+## Installation
 
-Build the CLI:
+### Homebrew (macOS and Linux)
+
+```bash
+brew tap tellers-ai/tellers
+brew install tellers
+```
+
+### Build from source
 
 ```bash
 # Generate the client crate

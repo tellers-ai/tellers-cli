@@ -142,7 +142,7 @@ jobs:
   # ── 4. Push updated formula to the Homebrew tap ─────────────────────────────
   #
   # Prerequisites (one-time setup):
-  #   1. Create repo  tellers-ai/homebrew  (or rename to homebrew-tellers for `brew tap tellers-ai/tellers`)
+  #   1. Create repo  tellers-ai/homebrew-tellers  (`brew tap tellers-ai/tellers`)
   #   2. Add Formula/tellers.rb  (use .github/homebrew/tellers.rb as the seed)
   #   3. Create a GitHub PAT (classic) with the "repo" scope
   #   4. Add it as secret  HOMEBREW_TAP_TOKEN  in this repo's settings
@@ -211,7 +211,7 @@ jobs:
         env:
           TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/tellers-ai/homebrew.git" tap
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/tellers-ai/homebrew-tellers.git" tap
           mkdir -p tap/Formula
           cp tellers.rb tap/Formula/tellers.rb
           cd tap
