@@ -3,7 +3,6 @@ use std::time::Instant;
 
 use crate::auth;
 use crate::media::ffmpeg::get_media_duration;
-use crate::media::metadata::extract_media_metadata;
 use crate::media::media_file_type::{is_audio_file, is_image_file, is_metadata_file};
 use crate::media::transcode::{has_video_streams, is_mxf_file};
 use crate::media::video_file_ext::has_video_ext;
@@ -19,6 +18,7 @@ pub fn run_dry_run(
     auth_bearer: &Option<String>,
     force_upload: bool,
     disable_description_generation: bool,
+    local_encoding: bool,
 ) -> Result<(), String> {
     let bearer_env = auth_bearer
         .clone()
@@ -255,22 +255,18 @@ pub fn run_dry_run(
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-        let related_umids: Vec<String> = extract_media_metadata(file_path)
-            .map(|m| m.file_package_umids.iter().map(|u| u.umid.clone()).collect())
-            .unwrap_or_default();
         let generate_time_based_media_description = !disable_description_generation;
         output::plain(format!("  file: {}", file_name));
+        output::plain("    cutter_sensitivity: 0.2");
         output::plain(format!(
             "    generate_time_based_media_description: {}",
             generate_time_based_media_description
         ));
-        if related_umids.is_empty() {
-            output::plain("    related_umid_for_master_clip: null");
+        output::plain("    override_entity_ids: omitted");
+        if local_encoding {
+            output::plain("    generate_proxy: []");
         } else {
-            output::plain("    related_umid_for_master_clip:");
-            for umid in &related_umids {
-                output::plain(format!("      - {}", umid));
-            }
+            output::plain("    generate_proxy: omitted");
         }
         output::plain("");
     }
