@@ -414,6 +414,8 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
             &args.auth_bearer,
             args.force_upload,
             args.disable_description_generation,
+            args.local_encoding,
+            args.generate_proxy.is_some(),
         );
     }
 
@@ -843,7 +845,7 @@ fn run_two_queue_pipeline(
     let user_id = user_id.to_string();
     let upload_request_id = upload_request_id.to_string();
     let disable_description_generation = args.disable_description_generation;
-    let generate_proxy = args.generate_proxy.clone();
+    let generate_proxy = args.generate_proxy.clone().or_else(|| Some(vec![]));
 
     let block_result = rt.block_on(async move {
         // Start render loop inside runtime so tokio::spawn has a current runtime
