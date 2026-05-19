@@ -30,7 +30,6 @@ use tokio::sync::mpsc as tokio_mpsc;
 
 use tellers_api_client::apis::accepts_api_key_api as api;
 use tellers_api_client::apis::configuration::Configuration;
-use tellers_api_client::models::process_assets_request::GenerateProxy;
 use tellers_api_client::models::{
     AssetUploadRequest, AssetUploadResponse, CreateFolderRequest, FileType, ProcessAssetsRequest,
     SourceFileInfo,
@@ -95,10 +94,6 @@ pub struct UploadCmdArgs {
     #[arg(long, default_value_t = false)]
     pub dry_run: bool,
 
-    /// Proxy heights to request from the server after upload (e.g. 720, 1080). Omitted by default to match tellers-app; local encoding uses --qualities.
-    #[arg(long, value_delimiter = ',', num_args = 0.., value_parser = parse_generate_proxy)]
-    pub generate_proxy: Option<Vec<GenerateProxy>>,
-
     #[arg(long, default_value_t = false)]
     pub disable_description_generation: bool,
 
@@ -161,20 +156,6 @@ struct MachineAssetStatus {
     asset_id: String,
     local_path: String,
     status: String,
-}
-
-fn parse_generate_proxy(s: &str) -> Result<GenerateProxy, String> {
-    match s.trim() {
-        "360" => Ok(GenerateProxy::Variant360),
-        "480" => Ok(GenerateProxy::Variant480),
-        "720" => Ok(GenerateProxy::Variant720),
-        "1080" => Ok(GenerateProxy::Variant1080),
-        "2160" => Ok(GenerateProxy::Variant2160),
-        _ => Err(format!(
-            "generate_proxy must be one of 360, 480, 720, 1080, 2160, got '{}'",
-            s
-        )),
-    }
 }
 
 fn has_extension(file_path: &PathBuf, extensions: &[String]) -> bool {
@@ -415,7 +396,6 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
             args.force_upload,
             args.disable_description_generation,
             args.local_encoding,
-            args.generate_proxy.is_some(),
         );
     }
 
@@ -547,8 +527,6 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
         });
     }
 
-    let effective_generate_proxy = args.generate_proxy.clone();
-
     let base_dir = base_dir.clone();
     let in_app_path = args.in_app_path.clone();
 
@@ -592,7 +570,6 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
                 &api_key,
                 bearer_header.as_deref(),
                 args.disable_description_generation,
-                effective_generate_proxy.as_ref(),
             )
             .await;
 
@@ -845,8 +822,6 @@ fn run_two_queue_pipeline(
     let user_id = user_id.to_string();
     let upload_request_id = upload_request_id.to_string();
     let disable_description_generation = args.disable_description_generation;
-    let generate_proxy = args.generate_proxy.clone().or_else(|| Some(vec![]));
-
     let block_result = rt.block_on(async move {
         // Start render loop inside runtime so tokio::spawn has a current runtime
         let render_handle = progress.start_render_loop(progress_handle.clone());
@@ -962,7 +937,7 @@ fn run_two_queue_pipeline(
                 preproc_req.cutter_sensitivity = Some(0.2);
                 preproc_req.generate_time_based_media_description =
                     Some(!disable_description_generation);
-                preproc_req.generate_proxy = generate_proxy.clone();
+                preproc_req.generate_proxy = Some(vec![]);
                 let preproc_tasks = api::process_assets_users_assets_preprocess_post(
                     &cfg,
                     preproc_req,
@@ -1191,7 +1166,6 @@ async fn upload_with_per_file_presigned(
     api_key: &str,
     bearer_opt: Option<&str>,
     disable_description_generation: bool,
-    generate_proxy: Option<&Vec<GenerateProxy>>,
 ) -> Result<Vec<UploadedAssetInfo>, String> {
     let http = Arc::new(
         reqwest::Client::builder()
@@ -1211,7 +1185,6 @@ async fn upload_with_per_file_presigned(
     let in_app_path = in_app_path.clone();
     let upload_request_id = upload_request_id.to_string();
     let user_id = user_id.to_string();
-    let generate_proxy = generate_proxy.cloned();
 
     for (i, file_info) in files_to_upload.iter().enumerate() {
         let file_info = file_info.clone();
@@ -1225,7 +1198,6 @@ async fn upload_with_per_file_presigned(
         let in_app_path_clone = in_app_path.clone();
         let upload_request_id_clone = upload_request_id.clone();
         let user_id_clone = user_id.clone();
-        let generate_proxy_clone = generate_proxy.clone();
         let uploaded_asset_ids_clone = Arc::clone(&uploaded_asset_ids);
         let task_id = i;
 
@@ -1298,9 +1270,6 @@ async fn upload_with_per_file_presigned(
                 preproc_req.cutter_sensitivity = Some(0.2);
                 preproc_req.generate_time_based_media_description =
                     Some(!disable_description_generation);
-                if let Some(ref proxy) = generate_proxy_clone {
-                    preproc_req.generate_proxy = Some(proxy.clone());
-                }
                 if let Err(e) = api::process_assets_users_assets_preprocess_post(
                     &cfg_clone,
                     preproc_req,

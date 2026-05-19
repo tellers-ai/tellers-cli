@@ -19,7 +19,6 @@ pub fn run_dry_run(
     force_upload: bool,
     disable_description_generation: bool,
     local_encoding: bool,
-    has_generate_proxy_override: bool,
 ) -> Result<(), String> {
     let bearer_env = auth_bearer
         .clone()
@@ -264,10 +263,10 @@ pub fn run_dry_run(
             generate_time_based_media_description
         ));
         output::plain("    override_entity_ids: omitted");
-        if local_encoding && !has_generate_proxy_override {
+        if local_encoding {
             output::plain("    generate_proxy: []");
         } else {
-            output::plain("    generate_proxy: omitted unless --generate-proxy is set");
+            output::plain("    generate_proxy: omitted");
         }
         output::plain("");
     }
