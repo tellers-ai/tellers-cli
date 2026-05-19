@@ -818,7 +818,11 @@ fn run_two_queue_pipeline(
 ) -> Result<Vec<UploadedAssetInfo>, String> {
     let (upload_tx, mut upload_rx) = tokio_mpsc::channel::<FileToUpload>(64);
 
-    let mut progress = TwoQueueProgress::new()?;
+    let mut progress = if args.machine_readable {
+        TwoQueueProgress::without_terminal()
+    } else {
+        TwoQueueProgress::new()?
+    };
     let progress_handle = progress.clone_handle();
     progress_handle.set_downscale_queued(work_items.len());
     let downscale_pending_names: Vec<String> = work_items.iter().map(work_item_file_name).collect();

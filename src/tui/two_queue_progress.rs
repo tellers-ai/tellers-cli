@@ -34,11 +34,7 @@ pub(crate) struct TwoQueueState {
 
 impl TwoQueueState {
     fn downscale_display(&self) -> String {
-        let current = self
-            .downscale_current
-            .as_deref()
-            .unwrap_or("—")
-            .to_string();
+        let current = self.downscale_current.as_deref().unwrap_or("—").to_string();
         let s = truncate_string(&current, 35);
         if let Some(pct) = self.downscale_current_pct {
             format!("{} ({:.0}%)", s, pct)
@@ -48,11 +44,7 @@ impl TwoQueueState {
     }
 
     fn upload_display(&self) -> String {
-        let current = self
-            .upload_current
-            .as_deref()
-            .unwrap_or("—")
-            .to_string();
+        let current = self.upload_current.as_deref().unwrap_or("—").to_string();
         let s = truncate_string(&current, 35);
         if let Some(pct) = self.upload_current_pct {
             format!("{} ({:.0}%)", s, pct)
@@ -62,11 +54,17 @@ impl TwoQueueState {
     }
 
     fn downscale_pending_next(&self) -> impl Iterator<Item = &str> {
-        self.downscale_pending.iter().take(PENDING_DISPLAY).map(|s| s.as_str())
+        self.downscale_pending
+            .iter()
+            .take(PENDING_DISPLAY)
+            .map(|s| s.as_str())
     }
 
     fn upload_pending_next(&self) -> impl Iterator<Item = &str> {
-        self.upload_pending.iter().take(PENDING_DISPLAY).map(|s| s.as_str())
+        self.upload_pending
+            .iter()
+            .take(PENDING_DISPLAY)
+            .map(|s| s.as_str())
     }
 }
 
@@ -92,6 +90,16 @@ impl TwoQueueProgress {
                 ..Default::default()
             })),
         })
+    }
+
+    pub fn without_terminal() -> Self {
+        Self {
+            terminal: RefCell::new(None),
+            state: Arc::new(Mutex::new(TwoQueueState {
+                max_messages: 100,
+                ..Default::default()
+            })),
+        }
     }
 
     pub fn clone_handle(&self) -> TwoQueueProgressHandle {
@@ -127,9 +135,7 @@ impl TwoQueueProgress {
         })
     }
 
-    pub async fn stop_render_loop(
-        render_handle: tokio::task::JoinHandle<Result<(), String>>,
-    ) {
+    pub async fn stop_render_loop(render_handle: tokio::task::JoinHandle<Result<(), String>>) {
         tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
         render_handle.abort();
         let _ = render_handle.await;
@@ -273,26 +279,21 @@ pub fn draw_two_queue_ui(frame: &mut Frame, state: &TwoQueueState) {
     let has_messages = !state.recent_messages.is_empty();
     let msg_space = if has_messages { 4 } else { 0 };
 
-    let vertical = Layout::vertical([
-        Constraint::Min(3),
-        Constraint::Length(msg_space),
-    ])
-    .margin(1);
+    let vertical = Layout::vertical([Constraint::Min(3), Constraint::Length(msg_space)]).margin(1);
 
     let areas = vertical.split(area);
     let main_area = areas[0];
     let bottom_area = areas[1];
 
     // Two columns: each shows "Queue: N" and "Current: <file>"
-    let cols = Layout::horizontal([
-        Constraint::Percentage(50),
-        Constraint::Percentage(50),
-    ])
-    .split(main_area);
+    let cols = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(main_area);
 
     let downscale_block = Block::default().title(Span::styled(
         " Downscale ",
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
     ));
     frame.render_widget(downscale_block, cols[0]);
 
@@ -318,9 +319,15 @@ pub fn draw_two_queue_ui(frame: &mut Frame, state: &TwoQueueState) {
             ),
         ]),
     ];
-    let pending_down: Vec<String> = state.downscale_pending_next().map(|s| truncate_string(s, 32)).collect();
+    let pending_down: Vec<String> = state
+        .downscale_pending_next()
+        .map(|s| truncate_string(s, 32))
+        .collect();
     if !pending_down.is_empty() {
-        downscale_lines.push(Line::from(Span::styled("Next:", Style::default().fg(Color::DarkGray))));
+        downscale_lines.push(Line::from(Span::styled(
+            "Next:",
+            Style::default().fg(Color::DarkGray),
+        )));
         for name in &pending_down {
             downscale_lines.push(Line::from(Span::styled(
                 format!("  {}", name),
@@ -333,7 +340,9 @@ pub fn draw_two_queue_ui(frame: &mut Frame, state: &TwoQueueState) {
 
     let upload_block = Block::default().title(Span::styled(
         " Upload ",
-        Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::Blue)
+            .add_modifier(Modifier::BOLD),
     ));
     frame.render_widget(upload_block, cols[1]);
 
@@ -359,9 +368,15 @@ pub fn draw_two_queue_ui(frame: &mut Frame, state: &TwoQueueState) {
             ),
         ]),
     ];
-    let pending_up: Vec<String> = state.upload_pending_next().map(|s| truncate_string(s, 32)).collect();
+    let pending_up: Vec<String> = state
+        .upload_pending_next()
+        .map(|s| truncate_string(s, 32))
+        .collect();
     if !pending_up.is_empty() {
-        upload_lines.push(Line::from(Span::styled("Next:", Style::default().fg(Color::DarkGray))));
+        upload_lines.push(Line::from(Span::styled(
+            "Next:",
+            Style::default().fg(Color::DarkGray),
+        )));
         for name in &pending_up {
             upload_lines.push(Line::from(Span::styled(
                 format!("  {}", name),
