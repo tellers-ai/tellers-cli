@@ -21,12 +21,14 @@ paths:
         required: true
         schema:
           type: integer
+          exclusiveMinimum: 0
           title: Limit
       - name: page
         in: query
         required: true
         schema:
           type: integer
+          minimum: 0
           title: Page
       - name: folder_on_top
         in: query
@@ -70,6 +72,166 @@ paths:
                   $ref: '#/components/schemas/FileReference'
                 title: Response Request Files Processing Users Sources List Files
                   Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /users/get:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Get User
+      operationId: get_user_users_get_get
+      deprecated: true
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiUser'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /users/me:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Get Current User
+      description: Return the authenticated user's profile, credit balance, and subscription
+        snapshot.
+      operationId: get_current_user_users_me_get
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiUser'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - accepts-api-key
+      summary: Update Current User
+      operationId: update_current_user_users_me_patch
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiUser'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /users/check_coupons:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Check Coupons
+      operationId: check_coupons_users_check_coupons_get
+      parameters:
+      - name: coupon_code
+        in: query
+        required: true
+        schema:
+          type: string
+          description: Stripe promotion code to validate.
+          title: Coupon Code
+        description: Stripe promotion code to validate.
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CouponCheckResponse'
         '422':
           description: Validation Error
           content:
@@ -215,12 +377,6 @@ paths:
       summary: Process Assets
       operationId: process_assets_users_assets_preprocess_post
       parameters:
-      - name: priority
-        in: query
-        required: false
-        schema:
-          $ref: '#/components/schemas/TaskPriority'
-          default: highest
       - name: x-api-key
         in: header
         required: false
@@ -436,6 +592,7 @@ paths:
         required: false
         schema:
           type: integer
+          exclusiveMinimum: 0
           default: 1
           title: Limit
       - name: group_id
@@ -556,6 +713,183 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /asset/download_urls:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Get Asset Download Url Batch Json
+      description: Return download URL payloads for multiple assets using one shared
+        config.
+      operationId: get_asset_download_url_batch_json_asset_download_urls_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetDownloadUrlBatchRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetDownloadUrlBatchResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /asset/infos:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Get Asset Infos Batch Json
+      description: Return minimal source/path/duration info for multiple assets.
+      operationId: get_asset_infos_batch_json_asset_infos_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetInfosBatchRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetInfosBatchResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /asset/description/{description_id}/generation-metadata:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Get Asset Description Generation Metadata
+      description: Return debug/provenance metadata saved with one generated chunk
+        description.
+      operationId: get_asset_description_generation_metadata_asset_description__description_id__generation_metadata_get
+      parameters:
+      - name: description_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Description Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetDescriptionGenerationMetadataResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /asset/{asset_id}/duplicate:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Duplicate Asset
+      description: 'Duplicate a project asset. Caller must have WRITE on the source.
+
+
+        Non-project assets return 400. Missing asset or no write access returns 404.'
+      operationId: duplicate_asset_asset__asset_id__duplicate_post
+      parameters:
+      - name: asset_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Asset Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DuplicateAssetResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /project/{project_id}/export:
     post:
       tags:
@@ -627,6 +961,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /billing/catalog:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Get Billing Catalog
+      operationId: get_billing_catalog_billing_catalog_get
+      parameters:
+      - name: If-None-Match
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: If-None-Match
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingCatalog'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /agent/response/{chat_id}:
     delete:
       tags:
@@ -674,9 +1036,15 @@ paths:
       tags:
       - accepts-api-key
       summary: Stream Chat Messages
-      description: 'Stream new chat messages as they are added to the database.
-
-        Returns SSE events with message data.'
+      description: "Subscribe to a chat's agent SSE stream (Redis-backed).\n\nEmits\
+        \ the exact same events as ``POST /agent/response`` \u2014 both sides read\n\
+        from the per-chat Redis Stream written by the producer running the agent.\n\
+        \nQuery params:\n  - ``last_event_id``: resume from this Redis stream entry\
+        \ id. Pass the\n    ``id:`` of the last SSE event you received to avoid duplicates.\
+        \ When\n    omitted, the subscription starts from \"now\" \u2014 only events\
+        \ produced\n    after the GET request arrives are delivered, no history is\
+        \ replayed.\n  - ``after``: accepted for backward compatibility and currently\
+        \ ignored.\n    Use ``last_event_id`` instead."
       operationId: stream_chat_messages_agent_response__chat_id__get
       parameters:
       - name: chat_id
@@ -694,6 +1062,14 @@ paths:
             format: date-time
           - type: 'null'
           title: After
+      - name: last_event_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Event Id
       - name: x-api-key
         in: header
         required: false
@@ -716,46 +1092,6 @@ paths:
           content:
             application/json:
               schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /agent/available-llm-models:
-    get:
-      tags:
-      - accepts-api-key
-      summary: Get Available Llm Models
-      operationId: get_available_llm_models_agent_available_llm_models_get
-      parameters:
-      - name: x-api-key
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: X-Api-Key
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: string
-                title: Response Get Available Llm Models Agent Available Llm Models
-                  Get
         '422':
           description: Validation Error
           content:
@@ -905,6 +1241,7 @@ paths:
         required: false
         schema:
           type: integer
+          exclusiveMinimum: 0
           default: 10
           title: Limit
       - name: offset
@@ -912,6 +1249,7 @@ paths:
         required: false
         schema:
           type: integer
+          minimum: 0
           default: 0
           title: Offset
       - name: before
@@ -1110,6 +1448,7 @@ paths:
         required: false
         schema:
           type: integer
+          minimum: 0
           default: 0
           title: Offset
       - name: limit
@@ -1117,6 +1456,7 @@ paths:
         required: false
         schema:
           type: integer
+          exclusiveMinimum: 0
           default: 20
           title: Limit
       - name: before
@@ -1256,6 +1596,23 @@ paths:
       - accepts-api-key
       summary: Get Settings
       operationId: get_settings_settings_get
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -1263,6 +1620,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AppSettings'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AgentMessageRequest:
@@ -1317,14 +1680,18 @@ components:
         llm_model:
           type: string
           enum:
+          - gpt-5.5-2026-04-23
+          - gpt-5.5-pro-2026-04-23
           - gpt-5.4-pro-2026-03-05
-          - gpt-5.4-2026-03-05
+          - gpt-5.4
+          - gpt-5.4-mini
+          - gpt-5.4-nano
           - gpt-5.3-codex
           - gpt-5.2-2025-12-11
           - gpt-5-mini-2025-08-07
           title: Llm Model
           description: The model to use to generate the response.
-          default: gpt-5.4-2026-03-05
+          default: gpt-5.5-2026-04-23
         tools:
           items:
             type: string
@@ -1440,14 +1807,18 @@ components:
         llm_model:
           type: string
           enum:
+          - gpt-5.5-2026-04-23
+          - gpt-5.5-pro-2026-04-23
           - gpt-5.4-pro-2026-03-05
-          - gpt-5.4-2026-03-05
+          - gpt-5.4
+          - gpt-5.4-mini
+          - gpt-5.4-nano
           - gpt-5.3-codex
           - gpt-5.2-2025-12-11
           - gpt-5-mini-2025-08-07
           title: Llm Model
           description: The model to use to generate the response.
-          default: gpt-5.4-2026-03-05
+          default: gpt-5.5-2026-04-23
         tools:
           items:
             type: string
@@ -1505,6 +1876,162 @@ components:
       required:
       - message
       title: AgentMessageRequestWithoutNoInteraction
+    ApiUser:
+      properties:
+        firebase_uid:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Firebase Uid
+        email:
+          type: string
+          title: Email
+        company:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Company
+        first_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: First Name
+        job_title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Job Title
+        last_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Name
+        profile_pic:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Profile Pic
+        created_at_str:
+          type: string
+          title: Created At Str
+          description: '``created_at`` as UTC ISO-8601 ending in Z (e.g. for debugging
+            / clients).'
+        last_seen_at_str:
+          type: string
+          title: Last Seen At Str
+          description: '``last_seen_at`` as UTC ISO-8601 ending in Z.'
+        updated_at_str:
+          type: string
+          title: Updated At Str
+          description: '``updated_at`` as UTC ISO-8601 ending in Z.'
+        credits:
+          type: number
+          title: Credits
+          description: Spendable balance from grants (`get_token`), not legacy columns.
+        storage_quota_gb:
+          type: integer
+          title: Storage Quota Gb
+          description: Total storage quota available to the user in GB.
+        subscription:
+          anyOf:
+          - $ref: '#/components/schemas/ApiUserSubscription'
+          - type: 'null'
+        role:
+          additionalProperties:
+            type: boolean
+          type: object
+          title: Role
+          description: Role flags for roles held by the user. Missing roles are omitted.
+        user_preferences:
+          $ref: '#/components/schemas/UserPreferences'
+          description: Persisted user preferences returned with the user profile.
+      type: object
+      required:
+      - firebase_uid
+      - email
+      - company
+      - first_name
+      - job_title
+      - last_name
+      - profile_pic
+      - created_at_str
+      - last_seen_at_str
+      - updated_at_str
+      - credits
+      - storage_quota_gb
+      - subscription
+      - user_preferences
+      title: ApiUser
+    ApiUserSubscription:
+      properties:
+        type:
+          type: string
+          enum:
+          - Monthly
+          - Yearly
+          title: Type
+          description: User-facing subscription cadence label.
+        monthly_tokens:
+          type: number
+          title: Monthly Tokens
+          description: Subscription token amount available each month.
+        storage_quota_gb:
+          type: integer
+          title: Storage Quota Gb
+          description: Total storage quota available to the user in GB.
+        pricing:
+          items:
+            $ref: '#/components/schemas/ApiUserSubscriptionPricingLine'
+          type: array
+          title: Pricing
+          description: Current Stripe subscription price lines with price id and quantity.
+        cancel_at_period_end:
+          type: boolean
+          title: Cancel At Period End
+          description: True when Stripe will cancel the subscription at period end.
+          default: false
+        cancel_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cancel At
+          description: UTC ISO-8601 time when Stripe will cancel the subscription.
+        current_period_end:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Current Period End
+          description: UTC ISO-8601 end of the current subscription period.
+        latest_payment_issue:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Latest Payment Issue
+          description: When set, an invoice needs payment or customer action (e.g.
+            3DS). Fields may include invoice_id, invoice_status, hosted_invoice_url,
+            customer_action_url.
+      type: object
+      required:
+      - type
+      - monthly_tokens
+      - storage_quota_gb
+      title: ApiUserSubscription
+    ApiUserSubscriptionPricingLine:
+      properties:
+        id:
+          type: string
+          title: Id
+          description: Stripe price id for this subscription line.
+        quantity:
+          type: integer
+          title: Quantity
+          description: Quantity for this Stripe price line.
+      type: object
+      required:
+      - id
+      - quantity
+      title: ApiUserSubscriptionPricingLine
     AppContext:
       properties:
         current_playback_time:
@@ -1566,15 +2093,261 @@ components:
           title: Available Agent Tools
         available_llm_models:
           items:
-            type: string
+            $ref: '#/components/schemas/AvailableModel'
           type: array
           title: Available Llm Models
+        presets:
+          items:
+            $ref: '#/components/schemas/TellersPreset'
+          type: array
+          title: Presets
       type: object
       required:
       - maintenance_mode
       - available_agent_tools
       - available_llm_models
+      - presets
       title: AppSettings
+    AssetAnalysisSettings:
+      properties:
+        reasoning:
+          anyOf:
+          - type: string
+            enum:
+            - low
+            - medium
+            - high
+          - type: 'null'
+          title: Reasoning
+        fps:
+          anyOf:
+          - type: number
+            maximum: 24.0
+            minimum: 1.0
+          - type: 'null'
+          title: Fps
+        entity_quality:
+          anyOf:
+          - type: string
+            enum:
+            - low
+            - medium
+            - high
+          - type: 'null'
+          title: Entity Quality
+        asset_quality:
+          anyOf:
+          - type: string
+            enum:
+            - low
+            - medium
+            - high
+          - type: 'null'
+          title: Asset Quality
+        prompt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Prompt
+      additionalProperties: false
+      type: object
+      title: AssetAnalysisSettings
+    AssetDescriptionGenerationMetadataResponse:
+      properties:
+        description_id:
+          type: string
+          title: Description Id
+        asset_id:
+          type: string
+          title: Asset Id
+        start_time_ms:
+          type: integer
+          title: Start Time Ms
+        end_time_ms:
+          type: integer
+          title: End Time Ms
+        generation_metadata:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Generation Metadata
+      type: object
+      required:
+      - description_id
+      - asset_id
+      - start_time_ms
+      - end_time_ms
+      - generation_metadata
+      title: AssetDescriptionGenerationMetadataResponse
+    AssetDownloadUrlBatchItem:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        error:
+          type: boolean
+          title: Error
+        error_message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Message
+        download:
+          anyOf:
+          - $ref: '#/components/schemas/AssetDownloadUrlResponse'
+          - type: 'null'
+      type: object
+      required:
+      - asset_id
+      - error
+      title: AssetDownloadUrlBatchItem
+      description: Resolved download payload for one asset in a batch request.
+    AssetDownloadUrlBatchRequest:
+      properties:
+        asset_ids:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Asset Ids
+          description: Asset IDs to resolve.
+        quality:
+          type: string
+          enum:
+          - 480p
+          - 720p
+          - 1080p
+          - original
+          - highest
+          - lowest
+          title: Quality
+          default: 720p
+        player_compatible:
+          type: boolean
+          title: Player Compatible
+          default: true
+        frame_time:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Frame Time
+        request_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Request Id
+      type: object
+      required:
+      - asset_ids
+      title: AssetDownloadUrlBatchRequest
+      description: Request body for resolving multiple asset download URLs.
+    AssetDownloadUrlBatchResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/AssetDownloadUrlBatchItem'
+          type: array
+          title: Items
+      type: object
+      required:
+      - items
+      title: AssetDownloadUrlBatchResponse
+    AssetDownloadUrlResponse:
+      properties:
+        url:
+          type: string
+          title: Url
+        expiredIn:
+          type: integer
+          title: Expiredin
+          description: 'Seconds the URL is expected to work: matches S3 presign expiry
+            when applicable; for Pexels/CDN links this is a recommended refresh interval,
+            not a hard protocol expiry.'
+        current_time:
+          type: string
+          format: date-time
+          title: Current Time
+          description: The current time when the URL was generated
+        request_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Request Id
+          description: The request ID when the URL was generated
+      type: object
+      required:
+      - url
+      - expiredIn
+      title: AssetDownloadUrlResponse
+      description: Media URL and how long it should remain valid (for refresh / UrlSource
+        lifecycle).
+    AssetInfosBatchItem:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        error:
+          type: boolean
+          title: Error
+        error_message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Message
+        info:
+          anyOf:
+          - $ref: '#/components/schemas/AssetMinimalInfoResponse'
+          - type: 'null'
+      type: object
+      required:
+      - asset_id
+      - error
+      title: AssetInfosBatchItem
+    AssetInfosBatchRequest:
+      properties:
+        asset_ids:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Asset Ids
+          description: Asset IDs to fetch minimal info for.
+      type: object
+      required:
+      - asset_ids
+      title: AssetInfosBatchRequest
+    AssetInfosBatchResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/AssetInfosBatchItem'
+          type: array
+          title: Items
+      type: object
+      required:
+      - items
+      title: AssetInfosBatchResponse
+    AssetMinimalInfoResponse:
+      properties:
+        source_name:
+          type: string
+          title: Source Name
+        path:
+          type: string
+          title: Path
+        duration_second:
+          type: number
+          title: Duration Second
+        file_type:
+          $ref: '#/components/schemas/FileType'
+      type: object
+      required:
+      - source_name
+      - path
+      - duration_second
+      - file_type
+      title: AssetMinimalInfoResponse
     AssetReferenceRequest:
       properties:
         is_reference:
@@ -1664,6 +2437,285 @@ components:
       required:
       - is_public_read
       title: AssetVisibilityRequest
+    AvailableModel:
+      properties:
+        name:
+          type: string
+          title: Name
+        codename:
+          type: string
+          title: Codename
+        compatible_models:
+          items:
+            type: string
+          type: array
+          title: Compatible Models
+        options:
+          $ref: '#/components/schemas/TellersAvailableOptions'
+      type: object
+      required:
+      - name
+      - codename
+      - compatible_models
+      - options
+      title: AvailableModel
+    BillingCatalog:
+      properties:
+        plans:
+          items:
+            oneOf:
+            - $ref: '#/components/schemas/CatalogPlanOneOff'
+            - $ref: '#/components/schemas/CatalogPlanSubscription'
+            discriminator:
+              propertyName: kind
+              mapping:
+                one_off_tokens: '#/components/schemas/CatalogPlanOneOff'
+                subscription: '#/components/schemas/CatalogPlanSubscription'
+          type: array
+          title: Plans
+      additionalProperties: false
+      type: object
+      required:
+      - plans
+      title: BillingCatalog
+    CatalogFeature:
+      properties:
+        text:
+          type: string
+          title: Text
+          description: User-facing feature/highlight text.
+        icon_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Icon Key
+          description: Optional semantic icon key that frontend maps to an icon.
+      additionalProperties: false
+      type: object
+      required:
+      - text
+      title: CatalogFeature
+      description: Frontend-facing feature/highlight with optional semantic icon key.
+    CatalogHighlight:
+      properties:
+        number:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Number
+          description: Optional numeric value to display prominently.
+        stripe_price_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stripe Price Id
+          description: Optional Stripe price id used by UI when refreshing highlight
+            values.
+        text:
+          type: string
+          title: Text
+          description: Label displayed under/next to the number.
+      additionalProperties: false
+      type: object
+      required:
+      - text
+      title: CatalogHighlight
+      description: Frontend-facing compact metric shown as number + label.
+    CatalogPlanOneOff:
+      properties:
+        tier_id:
+          type: string
+          title: Tier Id
+        display_name:
+          type: string
+          title: Display Name
+          description: Human-readable plan name for frontend display.
+        subtitle:
+          type: string
+          title: Subtitle
+          description: Optional short subtitle/description displayed under the plan
+            name.
+          default: ''
+        cta_text:
+          type: string
+          title: Cta Text
+          description: Optional call-to-action label shown on the plan button.
+          default: ''
+        highlights:
+          items:
+            $ref: '#/components/schemas/CatalogHighlight'
+          type: array
+          maxItems: 2
+          title: Highlights
+          description: Up to two compact highlights for frontend display (number +
+            text).
+        features:
+          items:
+            $ref: '#/components/schemas/CatalogFeature'
+          type: array
+          title: Features
+          description: Human-readable feature bullets for this plan (frontend display).
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+        default_items:
+          items:
+            $ref: '#/components/schemas/PlanLineItem'
+          type: array
+          title: Default Items
+          description: Suggested default cart rows (empty list when not applicable).
+        pricing:
+          $ref: '#/components/schemas/PlanPricing'
+          description: Priced lines used for preview and checkout.
+        kind:
+          type: string
+          const: one_off_tokens
+          title: Kind
+          default: one_off_tokens
+      additionalProperties: false
+      type: object
+      required:
+      - tier_id
+      - display_name
+      - default_items
+      - pricing
+      title: CatalogPlanOneOff
+      description: Prepaid token pack.
+    CatalogPlanSubscription:
+      properties:
+        tier_id:
+          type: string
+          title: Tier Id
+        display_name:
+          type: string
+          title: Display Name
+          description: Human-readable plan name for frontend display.
+        subtitle:
+          type: string
+          title: Subtitle
+          description: Optional short subtitle/description displayed under the plan
+            name.
+          default: ''
+        cta_text:
+          type: string
+          title: Cta Text
+          description: Optional call-to-action label shown on the plan button.
+          default: ''
+        highlights:
+          items:
+            $ref: '#/components/schemas/CatalogHighlight'
+          type: array
+          maxItems: 2
+          title: Highlights
+          description: Up to two compact highlights for frontend display (number +
+            text).
+        features:
+          items:
+            $ref: '#/components/schemas/CatalogFeature'
+          type: array
+          title: Features
+          description: Human-readable feature bullets for this plan (frontend display).
+        enabled:
+          type: boolean
+          title: Enabled
+          default: true
+        default_items:
+          items:
+            $ref: '#/components/schemas/PlanLineItem'
+          type: array
+          title: Default Items
+          description: Suggested default cart rows (empty list when not applicable).
+        pricing:
+          $ref: '#/components/schemas/PlanPricing'
+          description: Priced lines used for preview and checkout.
+        kind:
+          type: string
+          const: subscription
+          title: Kind
+          default: subscription
+        interval:
+          anyOf:
+          - type: string
+            enum:
+            - month
+            - year
+          - type: 'null'
+          title: Interval
+        interval_upgrade_cta:
+          type: string
+          title: Interval Upgrade Cta
+          description: Optional call-to-action label for switching subscription interval,
+            e.g. monthly to yearly.
+          default: ''
+        quantity_update_cta:
+          type: string
+          title: Quantity Update Cta
+          description: Optional call-to-action label for changing subscription item
+            quantities.
+          default: ''
+      additionalProperties: false
+      type: object
+      required:
+      - tier_id
+      - display_name
+      - default_items
+      - pricing
+      title: CatalogPlanSubscription
+    CatalogPricingLine:
+      properties:
+        stripe_price_id:
+          type: string
+          title: Stripe Price Id
+        display_name:
+          type: string
+          title: Display Name
+          description: Human-readable label for this Stripe price line (frontend display).
+          default: ''
+        unit_amount_cents:
+          type: number
+          title: Unit Amount Cents
+          description: Effective unit price in cents per displayed unit (e.g. per
+            token). For Stripe prices configured per pack/group, this is normalized
+            using Stripe transform quantity metadata.
+          default: 0.0
+        min_quantity:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Min Quantity
+          description: Checkout minimum quantity for this price (one-off packs).
+        max_quantity:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Max Quantity
+          description: Checkout maximum quantity for this price (one-off packs).
+        tier_pricing_from_stripe:
+          type: boolean
+          title: Tier Pricing From Stripe
+          description: If true, replace this price line with tier bands fetched from
+            Stripe (subscription only).
+          default: false
+        tiers_mode:
+          anyOf:
+          - type: string
+            enum:
+            - graduated
+            - volume
+          - type: 'null'
+          title: Tiers Mode
+          description: 'For Stripe tiered prices: `graduated` vs `volume` (Stripe
+            Price `tiers_mode`). Set on each band when `tier_pricing_from_stripe`
+            lines are expanded from Stripe.'
+      additionalProperties: false
+      type: object
+      required:
+      - stripe_price_id
+      title: CatalogPricingLine
+      description: One billable Stripe price on the plan.
     ChatHistoryResponse:
       properties:
         id:
@@ -1767,6 +2819,31 @@ components:
       - context
       - created_at
       title: ChatMessageUserResponse
+    CouponCheckResponse:
+      properties:
+        coupon_code:
+          type: string
+          title: Coupon Code
+        is_valid:
+          type: boolean
+          title: Is Valid
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+      type: object
+      required:
+      - coupon_code
+      - is_valid
+      - name
+      - description
+      title: CouponCheckResponse
     CreateFolderRequest:
       properties:
         path:
@@ -1801,6 +2878,16 @@ components:
       - id
       - path
       title: CreateFolderResponse
+    DuplicateAssetResponse:
+      properties:
+        id:
+          type: string
+          title: Id
+      type: object
+      required:
+      - id
+      title: DuplicateAssetResponse
+      description: New asset id after a successful duplicate.
     ExportProjectResponse:
       properties:
         task_id:
@@ -1919,6 +3006,54 @@ components:
       - multipart_upload_id
       - parts
       title: MultipartCompleteRequest
+    PlanLineItem:
+      properties:
+        price_id:
+          type: string
+          title: Price Id
+        quantity:
+          type: integer
+          minimum: 0.0
+          title: Quantity
+          description: Default quantity for this price.
+        quantity_step:
+          type: integer
+          minimum: 1.0
+          title: Quantity Step
+          description: Checkout quantity step for this item.
+        units_per_quantity:
+          type: number
+          exclusiveMinimum: 0.0
+          title: Units Per Quantity
+          description: Multiplier to convert checkout quantity into displayed units
+            for this item.
+          default: 1
+      additionalProperties: false
+      type: object
+      required:
+      - price_id
+      - quantity
+      - quantity_step
+      title: PlanLineItem
+      description: Reusable cart line item (used by checkout defaults).
+    PlanPricing:
+      properties:
+        lines:
+          items:
+            $ref: '#/components/schemas/CatalogPricingLine'
+          type: array
+          title: Lines
+          description: Priced Stripe lines (one for typical one-off; two for subscription).
+      additionalProperties: false
+      type: object
+      required:
+      - lines
+      title: PlanPricing
+      description: 'Pricing-only blob for Rust ``pricing_preview_json`` (``lines``
+        only).
+
+
+        Default starter quantities live on the plan as ``default_items``.'
     ProcessAssetsRequest:
       properties:
         assets:
@@ -2090,16 +3225,6 @@ components:
       - description
       - keywords
       title: SourceFileInfo
-    TaskPriority:
-      type: string
-      enum:
-      - highest
-      - high
-      - medium
-      - low
-      - lowest
-      title: TaskPriority
-      description: Task priority is used to prioritize tasks in the queue.
     TaskResponse:
       properties:
         id:
@@ -2147,6 +3272,111 @@ components:
       - ended_at
       - error_message
       title: TaskResponse
+    TellersAvailableOptions:
+      properties:
+        verbosity:
+          items:
+            type: string
+            enum:
+            - low
+            - medium
+            - high
+          type: array
+          title: Verbosity
+        reasoning_effort:
+          items:
+            anyOf:
+            - type: string
+              enum:
+              - none
+              - minimal
+              - low
+              - medium
+              - high
+              - xhigh
+            - type: 'null'
+          type: array
+          title: Reasoning Effort
+      type: object
+      required:
+      - verbosity
+      - reasoning_effort
+      title: TellersAvailableOptions
+    TellersPreset:
+      properties:
+        name:
+          type: string
+          title: Name
+        model:
+          anyOf:
+          - type: string
+            enum:
+            - gpt-5.5-2026-04-23
+            - gpt-5.5-pro-2026-04-23
+            - gpt-5.4-pro-2026-03-05
+            - gpt-5.4
+            - gpt-5.4-mini
+            - gpt-5.4-nano
+            - gpt-5.3-codex
+            - gpt-5.2-2025-12-11
+            - gpt-5-mini-2025-08-07
+          - type: 'null'
+          title: Model
+        options:
+          $ref: '#/components/schemas/TellersPresetOptions'
+      type: object
+      required:
+      - name
+      - model
+      - options
+      title: TellersPreset
+    TellersPresetOptions:
+      properties:
+        reasoning_effort:
+          anyOf:
+          - type: string
+            enum:
+            - none
+            - minimal
+            - low
+            - medium
+            - high
+            - xhigh
+          - type: 'null'
+          title: Reasoning Effort
+        verbosity:
+          anyOf:
+          - type: string
+            enum:
+            - low
+            - medium
+            - high
+          - type: 'null'
+          title: Verbosity
+      type: object
+      required:
+      - reasoning_effort
+      - verbosity
+      title: TellersPresetOptions
+    UpdateUserRequest:
+      properties:
+        first_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: First Name
+        last_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Name
+        user_preferences:
+          anyOf:
+          - $ref: '#/components/schemas/UserPreferences'
+          - type: 'null'
+      additionalProperties: false
+      type: object
+      title: UpdateUserRequest
     UseAgentToolRequest:
       properties:
         tool_id:
@@ -2163,6 +3393,15 @@ components:
       - tool_id
       - tool_arguments
       title: UseAgentToolRequest
+    UserPreferences:
+      properties:
+        analysis:
+          anyOf:
+          - $ref: '#/components/schemas/AssetAnalysisSettings'
+          - type: 'null'
+      additionalProperties: true
+      type: object
+      title: UserPreferences
     ValidationError:
       properties:
         loc:
