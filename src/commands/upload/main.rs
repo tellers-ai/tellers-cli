@@ -79,6 +79,9 @@ pub struct UploadCmdArgs {
     #[arg(long, env = "TELLERS_AUTH_BEARER")]
     pub auth_bearer: Option<String>,
 
+    #[arg(long, env = "TELLERS_API_KEY")]
+    pub api_key: Option<String>,
+
     #[arg(long, default_value_t = false)]
     pub force_upload: bool,
 
@@ -400,7 +403,7 @@ fn run_upload(args: UploadCmdArgs) -> Result<(), String> {
     }
 
     let cfg = api_config::create_config();
-    let api_key = api_config::get_api_key(None)?;
+    let api_key = api_config::get_api_key(args.api_key.clone())?;
     if !args.machine_readable {
         output::info(format!("API base: {}", cfg.base_path));
     }
@@ -941,8 +944,8 @@ fn run_two_queue_pipeline(
                 let preproc_tasks = api::process_assets_users_assets_preprocess_post(
                     &cfg,
                     preproc_req,
-                    None,
                     Some(&api_key),
+                    bearer_header,
                 )
                 .await
                 .map_err(|e| format!("failed to trigger preprocess: {}", e))?;
@@ -1273,8 +1276,8 @@ async fn upload_with_per_file_presigned(
                 if let Err(e) = api::process_assets_users_assets_preprocess_post(
                     &cfg_clone,
                     preproc_req,
-                    None,
                     Some(&api_key_clone),
+                    bearer_clone.as_deref(),
                 )
                 .await
                 {
