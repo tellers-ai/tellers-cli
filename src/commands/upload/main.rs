@@ -944,6 +944,7 @@ fn run_two_queue_pipeline(
                 let preproc_tasks = api::process_assets_users_assets_preprocess_post(
                     &cfg,
                     preproc_req,
+                    None,
                     Some(&api_key),
                     bearer_header,
                 )
@@ -1276,6 +1277,7 @@ async fn upload_with_per_file_presigned(
                 if let Err(e) = api::process_assets_users_assets_preprocess_post(
                     &cfg_clone,
                     preproc_req,
+                    None,
                     Some(&api_key_clone),
                     bearer_clone.as_deref(),
                 )
