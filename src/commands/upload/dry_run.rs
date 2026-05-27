@@ -17,7 +17,7 @@ pub fn run_dry_run(
     in_app_path: &Option<String>,
     auth_bearer: &Option<String>,
     force_upload: bool,
-    disable_description_generation: bool,
+    _disable_description_generation: bool,
     local_encoding: bool,
 ) -> Result<(), String> {
     let bearer_env = auth_bearer
@@ -255,14 +255,8 @@ pub fn run_dry_run(
             .unwrap_or_default()
             .to_string_lossy()
             .to_string();
-        let generate_time_based_media_description = !disable_description_generation;
         output::plain(format!("  file: {}", file_name));
         output::plain("    cutter_sensitivity: 0.2");
-        output::plain(format!(
-            "    generate_time_based_media_description: {}",
-            generate_time_based_media_description
-        ));
-        output::plain("    override_entity_ids: omitted");
         if local_encoding {
             output::plain("    generate_proxy: []");
         } else {
