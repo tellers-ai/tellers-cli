@@ -1,7 +1,9 @@
 use clap::ValueEnum;
 use ffmpeg_sidecar::command::FfmpegCommand;
 use ffmpeg_sidecar::event::{FfmpegEvent, LogLevel};
+use serde_json::Value;
 use std::path::PathBuf;
+use std::process::Command;
 
 use crate::media::metadata::get_ffprobe_json;
 use crate::media::video_quality::VideoQuality;
@@ -12,24 +14,115 @@ fn is_interlaced(path: &PathBuf) -> Result<bool, String> {
         Some(p) => p,
         None => return Ok(false),
     };
+    if probe_has_interlaced_video(&probe) {
+        return Ok(true);
+    }
+    match probe_video_frames(path) {
+        Ok(frames_probe) => Ok(probe_has_interlaced_frames(&frames_probe)),
+        Err(_) => Ok(false),
+    }
+}
+
+fn probe_has_interlaced_video(probe: &Value) -> bool {
     let streams = probe
         .get("streams")
         .and_then(|s| s.as_array())
-        .ok_or_else(|| "no streams in ffprobe output".to_string())?;
-    let video_stream = streams
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let Some(video_stream) = streams
         .iter()
         .find(|s| s.get("codec_type").and_then(|c| c.as_str()) == Some("video"))
-        .ok_or_else(|| "no video stream".to_string())?;
+    else {
+        return false;
+    };
     let field_order = video_stream
         .get("field_order")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown")
         .to_lowercase();
-    // Interlaced: tb, bt, tt, bb. Progressive or unknown => not interlaced.
-    Ok(matches!(
-        field_order.as_str(),
-        "tb" | "bt" | "tt" | "bb"
-    ))
+    if matches!(field_order.as_str(), "tb" | "bt" | "tt" | "bb") {
+        return true;
+    }
+    probe_has_interlaced_frames(probe)
+}
+
+fn probe_has_interlaced_frames(probe: &Value) -> bool {
+    probe
+        .get("frames")
+        .and_then(|frames| frames.as_array())
+        .map(|frames| {
+            frames.iter().any(|frame| {
+                frame
+                    .get("interlaced_frame")
+                    .and_then(|value| value.as_i64())
+                    == Some(1)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn probe_video_frames(path: &PathBuf) -> Result<Value, String> {
+    let output = Command::new("ffprobe")
+        .args([
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-select_streams",
+            "v:0",
+            "-read_intervals",
+            "%+#20",
+            "-show_entries",
+            "frame=interlaced_frame,top_field_first",
+            "-show_frames",
+            &path.to_string_lossy(),
+        ])
+        .output()
+        .map_err(|e| format!("failed to run ffprobe frame probe: {}", e))?;
+
+    if !output.status.success() {
+        return Err("ffprobe frame probe failed".to_string());
+    }
+
+    let json_str = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(&json_str)
+        .map_err(|e| format!("failed to parse ffprobe frame JSON output: {}", e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn probe_has_interlaced_video_uses_field_order() {
+        let probe = json!({
+            "streams": [{"codec_type": "video", "field_order": "tt"}],
+            "frames": [{"interlaced_frame": 0}]
+        });
+
+        assert!(probe_has_interlaced_video(&probe));
+    }
+
+    #[test]
+    fn probe_has_interlaced_video_falls_back_to_frame_flags() {
+        let probe = json!({
+            "streams": [{"codec_type": "video", "field_order": ""}],
+            "frames": [{"interlaced_frame": 1, "top_field_first": 1}]
+        });
+
+        assert!(probe_has_interlaced_video(&probe));
+    }
+
+    #[test]
+    fn probe_has_interlaced_video_treats_progressive_as_progressive() {
+        let probe = json!({
+            "streams": [{"codec_type": "video", "field_order": "progressive"}],
+            "frames": [{"interlaced_frame": 0}]
+        });
+
+        assert!(!probe_has_interlaced_video(&probe));
+    }
 }
 
 /// Parse ffmpeg time string e.g. "00:01:23.45" into seconds.
