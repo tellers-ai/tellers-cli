@@ -824,7 +824,6 @@ fn run_two_queue_pipeline(
     let in_app_path = args.in_app_path.clone();
     let user_id = user_id.to_string();
     let upload_request_id = upload_request_id.to_string();
-    let disable_description_generation = args.disable_description_generation;
     let block_result = rt.block_on(async move {
         // Start render loop inside runtime so tokio::spawn has a current runtime
         let render_handle = progress.start_render_loop(progress_handle.clone());
@@ -938,8 +937,6 @@ fn run_two_queue_pipeline(
                     None::<tellers_api_client::models::VersionReference>,
                 );
                 preproc_req.cutter_sensitivity = Some(0.2);
-                preproc_req.generate_time_based_media_description =
-                    Some(!disable_description_generation);
                 preproc_req.generate_proxy = Some(vec![]);
                 let preproc_tasks = api::process_assets_users_assets_preprocess_post(
                     &cfg,
@@ -1168,7 +1165,7 @@ async fn upload_with_per_file_presigned(
     cfg: &Configuration,
     api_key: &str,
     bearer_opt: Option<&str>,
-    disable_description_generation: bool,
+    _disable_description_generation: bool,
 ) -> Result<Vec<UploadedAssetInfo>, String> {
     let http = Arc::new(
         reqwest::Client::builder()
@@ -1271,8 +1268,6 @@ async fn upload_with_per_file_presigned(
                     None::<tellers_api_client::models::VersionReference>,
                 );
                 preproc_req.cutter_sensitivity = Some(0.2);
-                preproc_req.generate_time_based_media_description =
-                    Some(!disable_description_generation);
                 if let Err(e) = api::process_assets_users_assets_preprocess_post(
                     &cfg_clone,
                     preproc_req,

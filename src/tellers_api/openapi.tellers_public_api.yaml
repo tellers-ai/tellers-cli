@@ -2946,6 +2946,7 @@ components:
       - image
       - placeholder
       - group_clip
+      - master_clip
       - aaf
       - folder
       - project
@@ -3069,17 +3070,6 @@ components:
           type: number
           title: Cutter Sensitivity
           default: 0.5
-        generate_time_based_media_description:
-          type: boolean
-          title: Generate Time Based Media Description
-          default: false
-        override_entity_ids:
-          anyOf:
-          - items:
-              type: string
-            type: array
-          - type: 'null'
-          title: Override Entity Ids
         generate_proxy:
           items:
             type: string
