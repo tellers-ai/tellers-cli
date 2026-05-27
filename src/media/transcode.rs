@@ -8,6 +8,11 @@ use std::process::Command;
 use crate::media::metadata::get_ffprobe_json;
 use crate::media::video_quality::VideoQuality;
 
+#[derive(Clone, Debug)]
+struct VideoSpeedCorrection {
+    frame_rate: String,
+}
+
 /// Returns true if the first video stream is interlaced (field_order is tb, bt, tt, or bb).
 fn is_interlaced(path: &PathBuf) -> Result<bool, String> {
     let probe = match get_ffprobe_json(path)? {
@@ -89,6 +94,104 @@ fn probe_video_frames(path: &PathBuf) -> Result<Value, String> {
         .map_err(|e| format!("failed to parse ffprobe frame JSON output: {}", e))
 }
 
+fn parse_rational(value: Option<&str>) -> Option<f64> {
+    let value = value?;
+    let (num, den) = value.split_once('/')?;
+    let num: f64 = num.parse().ok()?;
+    let den: f64 = den.parse().ok()?;
+    if den == 0.0 {
+        return None;
+    }
+    Some(num / den)
+}
+
+fn first_video_stream(probe: &Value) -> Option<&Value> {
+    probe
+        .get("streams")
+        .and_then(|s| s.as_array())?
+        .iter()
+        .find(|s| s.get("codec_type").and_then(|c| c.as_str()) == Some("video"))
+}
+
+fn detect_mxf_half_rate_video(probe: &Value) -> Option<VideoSpeedCorrection> {
+    let format_name = probe
+        .get("format")
+        .and_then(|f| f.get("format_name"))
+        .and_then(|f| f.as_str())
+        .unwrap_or("");
+    if !format_name.split(',').any(|name| name == "mxf") {
+        return None;
+    }
+
+    let video_stream = first_video_stream(probe)?;
+    if video_stream.get("codec_name").and_then(|c| c.as_str()) != Some("mpeg2video") {
+        return None;
+    }
+
+    let r_frame_rate = video_stream.get("r_frame_rate").and_then(|v| v.as_str());
+    let avg_frame_rate = video_stream.get("avg_frame_rate").and_then(|v| v.as_str());
+    let r_rate = parse_rational(r_frame_rate)?;
+    let avg_rate = parse_rational(avg_frame_rate)?;
+
+    if avg_rate <= 0.0 || (r_rate * 2.0 - avg_rate).abs() > 0.001 {
+        return None;
+    }
+
+    avg_frame_rate.map(|frame_rate| VideoSpeedCorrection {
+        frame_rate: frame_rate.to_string(),
+    })
+}
+
+fn detect_video_speed_correction(path: &PathBuf) -> Result<Option<VideoSpeedCorrection>, String> {
+    let Some(probe) = get_ffprobe_json(path)? else {
+        return Ok(None);
+    };
+    Ok(detect_mxf_half_rate_video(&probe))
+}
+
+fn compute_video_essence_output_path(input: &PathBuf, out_base: &PathBuf) -> PathBuf {
+    out_base.join(format!(
+        "{}_video_essence.m2v",
+        input.file_stem().unwrap().to_string_lossy()
+    ))
+}
+
+fn extract_video_essence(input: &PathBuf, output: &PathBuf) -> Result<(), String> {
+    if let (Ok(in_md), Ok(out_md)) = (std::fs::metadata(input), std::fs::metadata(output)) {
+        if let (Ok(in_time), Ok(out_time)) = (in_md.modified(), out_md.modified()) {
+            if out_time >= in_time {
+                return Ok(());
+            }
+        }
+    }
+
+    let status = Command::new("ffmpeg")
+        .args([
+            "-y",
+            "-hide_banner",
+            "-i",
+            &input.to_string_lossy(),
+            "-map",
+            "0:v:0",
+            "-c:v",
+            "copy",
+            "-an",
+            &output.to_string_lossy(),
+        ])
+        .status()
+        .map_err(|e| format!("failed to run ffmpeg video essence extraction: {}", e))?;
+
+    if !status.success() {
+        return Err(format!(
+            "ffmpeg failed extracting video essence: {} -> {}",
+            input.display(),
+            output.display()
+        ));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,6 +225,38 @@ mod tests {
         });
 
         assert!(!probe_has_interlaced_video(&probe));
+    }
+
+    #[test]
+    fn detects_mxf_mpeg2_half_rate_video() {
+        let probe = json!({
+            "format": {"format_name": "mxf"},
+            "streams": [{
+                "codec_type": "video",
+                "codec_name": "mpeg2video",
+                "r_frame_rate": "25/2",
+                "avg_frame_rate": "25/1"
+            }]
+        });
+
+        let correction = detect_mxf_half_rate_video(&probe).unwrap();
+
+        assert_eq!(correction.frame_rate, "25/1");
+    }
+
+    #[test]
+    fn ignores_avid_style_half_avg_rate_video() {
+        let probe = json!({
+            "format": {"format_name": "mxf"},
+            "streams": [{
+                "codec_type": "video",
+                "codec_name": "h264",
+                "r_frame_rate": "25/1",
+                "avg_frame_rate": "25/2"
+            }]
+        });
+
+        assert!(detect_mxf_half_rate_video(&probe).is_none());
     }
 }
 
@@ -223,22 +358,25 @@ pub fn create_rendition(
 ) -> Result<PathBuf, String> {
     let temp_base = get_temp_rendition_dir()?;
     let output = compute_rendition_output_path(input, &definition, &temp_base);
+    let speed_correction = detect_video_speed_correction(input).unwrap_or(None);
 
-    if let (Ok(in_md), Ok(out_md)) = (std::fs::metadata(input), std::fs::metadata(&output)) {
-        if let (Ok(in_time), Ok(out_time)) = (in_md.modified(), out_md.modified()) {
-            if out_time >= in_time {
-                let msg = format!(
-                    "Reusing existing rendition for {} at {} ({})",
-                    input.display(),
-                    output.display(),
-                    definition.to_name()
-                );
-                if let Some(f) = info_cb {
-                    f(&msg);
-                } else if progress_cb.is_none() {
-                    crate::output::info(msg);
+    if speed_correction.is_none() {
+        if let (Ok(in_md), Ok(out_md)) = (std::fs::metadata(input), std::fs::metadata(&output)) {
+            if let (Ok(in_time), Ok(out_time)) = (in_md.modified(), out_md.modified()) {
+                if out_time >= in_time {
+                    let msg = format!(
+                        "Reusing existing rendition for {} at {} ({})",
+                        input.display(),
+                        output.display(),
+                        definition.to_name()
+                    );
+                    if let Some(f) = info_cb {
+                        f(&msg);
+                    } else if progress_cb.is_none() {
+                        crate::output::info(msg);
+                    }
+                    return Ok(output);
                 }
-                return Ok(output);
             }
         }
     }
@@ -250,9 +388,26 @@ pub fn create_rendition(
         }
     }
 
+    let source_input = if let Some(correction) = &speed_correction {
+        if let Some(f) = info_cb {
+            f("Detected MXF half-rate video timing; extracting video essence before downscale");
+        }
+        let essence_output = compute_video_essence_output_path(input, &temp_base);
+        extract_video_essence(input, &essence_output)?;
+        if let Some(f) = info_cb {
+            f(&format!(
+                "Using extracted video essence at {} fps",
+                correction.frame_rate
+            ));
+        }
+        essence_output
+    } else {
+        input.clone()
+    };
+
     let mut cmd = FfmpegCommand::new();
     cmd.overwrite()
-        .input(input.to_string_lossy())
+        .input(source_input.to_string_lossy())
         .codec_video("libx264")
         .args(["-pix_fmt", "yuv420p"]);
 
@@ -272,6 +427,9 @@ pub fn create_rendition(
     }
     if let Some(crf) = definition.crf {
         cmd.crf(crf as u32);
+    }
+    if let Some(correction) = &speed_correction {
+        cmd.args(["-r", &correction.frame_rate]);
     }
 
     cmd.args(["-movflags", "+faststart"]).codec_audio("aac");
@@ -583,5 +741,4 @@ pub fn has_video_streams(path: &PathBuf) -> Result<bool, String> {
     let output_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
     Ok(output_str == "video")
 }
-
 
