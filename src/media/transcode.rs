@@ -165,7 +165,7 @@ fn extract_video_essence(input: &PathBuf, output: &PathBuf) -> Result<(), String
         }
     }
 
-    let status = Command::new("ffmpeg")
+    let command_output = Command::new("ffmpeg")
         .args([
             "-y",
             "-hide_banner",
@@ -178,18 +178,44 @@ fn extract_video_essence(input: &PathBuf, output: &PathBuf) -> Result<(), String
             "-an",
             &output.to_string_lossy(),
         ])
-        .status()
+        .output()
         .map_err(|e| format!("failed to run ffmpeg video essence extraction: {}", e))?;
 
-    if !status.success() {
+    if !command_output.status.success() {
+        let stderr = filtered_ffmpeg_stderr(&command_output.stderr);
+        let log_suffix = if stderr.is_empty() {
+            String::new()
+        } else {
+            format!("\nffmpeg log:\n{}", stderr)
+        };
         return Err(format!(
-            "ffmpeg failed extracting video essence: {} -> {}",
+            "ffmpeg failed extracting video essence: {} -> {}{}",
             input.display(),
-            output.display()
+            output.display(),
+            log_suffix
         ));
     }
 
     Ok(())
+}
+
+fn is_ignorable_ffmpeg_log(line: &str) -> bool {
+    line.contains("mpeg2video @")
+        && line.contains("Application provided invalid, non monotonically increasing dts to muxer")
+}
+
+fn filtered_ffmpeg_stderr(stderr: &[u8]) -> String {
+    String::from_utf8_lossy(stderr)
+        .lines()
+        .filter(|line| !is_ignorable_ffmpeg_log(line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn push_ffmpeg_log_line(lines: &mut Vec<String>, line: &str) {
+    if !is_ignorable_ffmpeg_log(line) {
+        lines.push(line.to_string());
+    }
 }
 
 #[cfg(test)]
@@ -257,6 +283,27 @@ mod tests {
         });
 
         assert!(detect_mxf_half_rate_video(&probe).is_none());
+    }
+
+    #[test]
+    fn filters_known_mpeg2_non_monotonic_dts_warning() {
+        let stderr = b"[mpeg2video @ 0x7fd4d1f04180] Application provided invalid, non monotonically increasing dts to muxer in stream 0: 1708 >= 1681\nreal failure\n";
+
+        let filtered = filtered_ffmpeg_stderr(stderr);
+
+        assert_eq!(filtered, "real failure");
+    }
+
+    #[test]
+    fn keeps_unrelated_ffmpeg_errors() {
+        let stderr = b"[aac @ 0x123] Application provided invalid, non monotonically increasing dts to muxer in stream 1: 2 >= 1\n";
+
+        let filtered = filtered_ffmpeg_stderr(stderr);
+
+        assert_eq!(
+            filtered,
+            "[aac @ 0x123] Application provided invalid, non monotonically increasing dts to muxer in stream 1: 2 >= 1"
+        );
     }
 }
 
@@ -468,10 +515,10 @@ pub fn create_rendition(
                     }
                 }
                 FfmpegEvent::Error(e) => {
-                    stderr_lines.push(e.clone());
+                    push_ffmpeg_log_line(&mut stderr_lines, e);
                 }
                 FfmpegEvent::Log(LogLevel::Error, msg) | FfmpegEvent::Log(LogLevel::Fatal, msg) => {
-                    stderr_lines.push(msg.clone());
+                    push_ffmpeg_log_line(&mut stderr_lines, msg);
                 }
                 _ => {}
             }
@@ -609,10 +656,10 @@ fn run_ffmpeg_with_progress(
                     }
                 }
                 FfmpegEvent::Error(e) => {
-                    stderr_lines.push(e.clone());
+                    push_ffmpeg_log_line(&mut stderr_lines, e);
                 }
                 FfmpegEvent::Log(LogLevel::Error, msg) | FfmpegEvent::Log(LogLevel::Fatal, msg) => {
-                    stderr_lines.push(msg.clone());
+                    push_ffmpeg_log_line(&mut stderr_lines, msg);
                 }
                 _ => {}
             }
@@ -741,4 +788,3 @@ pub fn has_video_streams(path: &PathBuf) -> Result<bool, String> {
     let output_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
     Ok(output_str == "video")
 }
-
