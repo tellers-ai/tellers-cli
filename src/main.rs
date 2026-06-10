@@ -43,12 +43,6 @@ fn main() {
                 }
             }
         }
-        Some(cli::Command::Social(social_args)) => {
-            if let Err(error) = commands::social::run(social_args) {
-                eprintln!("error: {}", error);
-                std::process::exit(1);
-            }
-        }
         Some(cli::Command::Task(task_args)) => {
             if let Err(error) = commands::task::run(task_args) {
                 eprintln!("error: {}", error);
