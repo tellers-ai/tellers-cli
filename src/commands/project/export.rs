@@ -1,7 +1,10 @@
+use std::time::Duration;
+
 use clap::Args;
 use tellers_api_client::apis::accepts_api_key_api as api;
 
-use crate::commands::api_config;
+use crate::commands::{api_config, task};
+use crate::output;
 
 #[derive(Args, Debug)]
 pub struct ExportArgs {
@@ -18,6 +21,10 @@ pub struct ExportArgs {
 
     #[arg(long, env = "TELLERS_AUTH_BEARER")]
     pub auth_bearer: Option<String>,
+
+    /// Poll GET /users/tasks/{task_id} until the export completes.
+    #[arg(long, default_value_t = false)]
+    pub wait: bool,
 }
 
 const ALLOWED_RENDITIONS: &[&str] = &["360p", "480p", "720p", "1080p", "1440p", "4k"];
@@ -66,27 +73,31 @@ pub fn run(args: ExportArgs) -> Result<(), String> {
                 bearer_header.as_deref(),
             )
             .await
-            .map_err(|e| {
-                let mut m = format!("export failed: {}", e);
-                match &e {
-                    tellers_api_client::apis::Error::Reqwest(req_err) => {
-                        if let Some(status) = req_err.status() {
-                            m.push_str(&format!("; http_status: {}", status));
-                        }
-                    }
-                    tellers_api_client::apis::Error::ResponseError(resp) => {
-                        m.push_str(&format!("; http_status: {}", resp.status));
-                        if !resp.content.is_empty() {
-                            m.push_str(&format!("; response: {}", resp.content));
-                        }
-                    }
-                    _ => {}
-                }
-                m
-            })?;
+            .map_err(|e| api_config::format_api_error(&e))?;
 
             println!("task_id: {}", resp.task_id);
             println!("asset_id: {}", resp.asset_id);
+
+            if args.wait {
+                output::info(format!(
+                    "Waiting for export task {} to complete...",
+                    resp.task_id
+                ));
+                let result = task::wait_for_user_task(
+                    &cfg,
+                    &resp.task_id,
+                    &api_key,
+                    bearer_header.as_deref(),
+                    Duration::from_secs(2),
+                )
+                .await?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&result)
+                        .map_err(|e| format!("failed to encode export result: {}", e))?
+                );
+            }
+
             Ok(())
         })
 }

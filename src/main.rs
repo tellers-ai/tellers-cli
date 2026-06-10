@@ -43,6 +43,12 @@ fn main() {
                 }
             }
         }
+        Some(cli::Command::Task(task_args)) => {
+            if let Err(error) = commands::task::run(task_args) {
+                eprintln!("error: {}", error);
+                std::process::exit(1);
+            }
+        }
         Some(cli::Command::Upload(upload_args)) => {
             let suppress_plain_error = matches!(
                 &upload_args.command,
