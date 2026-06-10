@@ -415,6 +415,93 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /users/tasks/{task_id}:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Get User Task
+      operationId: get_user_task_users_tasks__task_id__get
+      parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Task Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                anyOf:
+                - $ref: '#/components/schemas/PendingTaskResponse'
+                - $ref: '#/components/schemas/CompleteTaskResponse'
+                - $ref: '#/components/schemas/FailedTaskResponse'
+                title: Response Get User Task Users Tasks  Task Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - accepts-api-key
+      summary: Cancel User Task
+      operationId: cancel_user_task_users_tasks__task_id__delete
+      parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Task Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelTaskResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /users/tasks:
     get:
       tags:
@@ -898,17 +985,18 @@ paths:
       description: 'Start async export of project to MP4 at one or more resolutions.
         Creates the export asset
 
-        in the API, then enqueues a task that generates each rendition. The export
-        appears as a
+        in the API, then enqueues a task that browser-encodes the highest requested
+        resolution.
 
-        new video asset in the project''s export folder (project name + date + .mp4),
-        with multiple
+        Smaller renditions are enqueued as downscaling_task jobs (not chained). The
+        export
 
-        renditions (e.g. 480p, 720p, 1080p, 4k) attached to that asset.
+        appears as a new video asset in the project''s export folder (project name
+        + date + .mp4).
 
 
-        Returns task_id and asset_id. Poll GET /task/{task_id} for completion; result
-        includes asset_id.'
+        Returns task_id and asset_id. Poll GET /users/tasks/{task_id} for completion;
+        result includes asset_id.'
       operationId: export_project_project__project_id__export_post
       parameters:
       - name: project_id
@@ -955,6 +1043,98 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ExportProjectResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /social-publishing/connect:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Redirect To Upload Post Connect
+      operationId: redirect_to_upload_post_connect_social_publishing_connect_get
+      parameters:
+      - name: platforms
+        in: query
+        required: false
+        schema:
+          type: array
+          items:
+            type: string
+          title: Platforms
+      - name: redirect_url
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Redirect Url
+      - name: show_calendar
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Show Calendar
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /social-publishing/posts:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Publish Social Post
+      operationId: publish_social_post_social_publishing_posts_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SocialPublishPostRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SocialPublishPostResponse'
         '422':
           description: Validation Error
           content:
@@ -1626,6 +1806,95 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /task/{task_id}:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Get Task
+      operationId: get_task_task__task_id__get
+      deprecated: true
+      parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Task Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                anyOf:
+                - $ref: '#/components/schemas/PendingTaskResponse'
+                - $ref: '#/components/schemas/CompleteTaskResponse'
+                - $ref: '#/components/schemas/FailedTaskResponse'
+                title: Response Get Task Task  Task Id  Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - accepts-api-key
+      summary: Delete Task
+      operationId: delete_task_task__task_id__delete
+      deprecated: true
+      parameters:
+      - name: task_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Task Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelTaskResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AgentMessageRequest:
@@ -2085,6 +2354,11 @@ components:
         maintenance_mode:
           type: boolean
           title: Maintenance Mode
+        social_publishing_platforms:
+          items:
+            $ref: '#/components/schemas/SocialPublishingPlatformSetting'
+          type: array
+          title: Social Publishing Platforms
         available_agent_tools:
           items:
             additionalProperties: true
@@ -2104,6 +2378,7 @@ components:
       type: object
       required:
       - maintenance_mode
+      - social_publishing_platforms
       - available_agent_tools
       - available_llm_models
       - presets
@@ -2478,6 +2753,22 @@ components:
       required:
       - plans
       title: BillingCatalog
+    CancelTaskResponse:
+      properties:
+        task_id:
+          type: string
+          title: Task Id
+        previous_state:
+          $ref: '#/components/schemas/TaskStatus'
+        description:
+          type: string
+          title: Description
+      type: object
+      required:
+      - task_id
+      - previous_state
+      - description
+      title: CancelTaskResponse
     CatalogFeature:
       properties:
         text:
@@ -2819,6 +3110,23 @@ components:
       - context
       - created_at
       title: ChatMessageUserResponse
+    CompleteTaskResponse:
+      properties:
+        status:
+          type: string
+          const: COMPLETE
+          title: Status
+          default: COMPLETE
+        result:
+          anyOf:
+          - type: object
+            additionalProperties: true
+          - type: 'null'
+          title: Result
+      type: object
+      required:
+      - result
+      title: CompleteTaskResponse
     CouponCheckResponse:
       properties:
         coupon_code:
@@ -2903,6 +3211,21 @@ components:
       title: ExportProjectResponse
       description: 'Response for POST /project/{project_id}/export: task_id and the
         new export asset_id.'
+    FailedTaskResponse:
+      properties:
+        status:
+          type: string
+          const: FAILED
+          title: Status
+          default: FAILED
+        result:
+          anyOf:
+          - type: object
+            additionalProperties: true
+          - type: 'null'
+          title: Result
+      type: object
+      title: FailedTaskResponse
     FileReference:
       properties:
         file_name:
@@ -3007,6 +3330,26 @@ components:
       - multipart_upload_id
       - parts
       title: MultipartCompleteRequest
+    PendingTaskResponse:
+      properties:
+        status:
+          type: string
+          const: PENDING
+          title: Status
+          default: PENDING
+        progress:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Progress
+        result:
+          anyOf:
+          - type: object
+            additionalProperties: true
+          - type: 'null'
+          title: Result
+      type: object
+      title: PendingTaskResponse
     PlanLineItem:
       properties:
         price_id:
@@ -3102,6 +3445,78 @@ components:
       required:
       - task_id
       title: RequestTaskResponse
+    SocialPublishPostRequest:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        platforms:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Platforms
+        title:
+          type: string
+          title: Title
+          default: ''
+        description:
+          type: string
+          title: Description
+          default: ''
+        scheduled_date:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Scheduled Date
+      type: object
+      required:
+      - asset_id
+      - platforms
+      title: SocialPublishPostRequest
+    SocialPublishPostResponse:
+      properties:
+        status:
+          type: string
+          title: Status
+        request_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Request Id
+        job_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Job Id
+        provider_response:
+          additionalProperties: true
+          type: object
+          title: Provider Response
+      type: object
+      required:
+      - status
+      title: SocialPublishPostResponse
+    SocialPublishingPlatformSetting:
+      properties:
+        id:
+          type: string
+          title: Id
+        label:
+          type: string
+          title: Label
+        supported_media_types:
+          items:
+            type: string
+          type: array
+          title: Supported Media Types
+      type: object
+      required:
+      - id
+      - label
+      - supported_media_types
+      title: SocialPublishingPlatformSetting
     SourceFileInfo:
       properties:
         sourceName:
@@ -3262,6 +3677,18 @@ components:
       - ended_at
       - error_message
       title: TaskResponse
+    TaskStatus:
+      type: string
+      enum:
+      - FAILURE
+      - PENDING
+      - RECEIVED
+      - RETRY
+      - REVOKED
+      - STARTED
+      - SUCCESS
+      - PROGRESS
+      title: TaskStatus
     TellersAvailableOptions:
       properties:
         verbosity:
