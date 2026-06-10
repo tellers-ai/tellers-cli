@@ -2,6 +2,8 @@ use clap::{Parser, Subcommand};
 
 use crate::commands::asset::AssetArgs;
 use crate::commands::project::ProjectArgs;
+use crate::commands::social::SocialArgs;
+use crate::commands::task::TaskArgs;
 use crate::commands::upload::UploadArgs;
 
 #[derive(Parser, Debug)]
@@ -44,6 +46,8 @@ pub struct Cli {
 pub enum Command {
     Asset(AssetArgs),
     Project(ProjectArgs),
+    Social(SocialArgs),
+    Task(TaskArgs),
     Upload(UploadArgs),
 }
 

@@ -31,3 +31,22 @@ pub fn create_config() -> Configuration {
     cfg
 }
 
+pub fn format_api_error<E: std::fmt::Debug>(e: &tellers_api_client::apis::Error<E>) -> String {
+    let mut message = format!("{}", e);
+    match e {
+        tellers_api_client::apis::Error::Reqwest(req_err) => {
+            if let Some(status) = req_err.status() {
+                message.push_str(&format!("; http_status: {}", status));
+            }
+        }
+        tellers_api_client::apis::Error::ResponseError(resp) => {
+            message.push_str(&format!("; http_status: {}", resp.status));
+            if !resp.content.is_empty() {
+                message.push_str(&format!("; response: {}", resp.content));
+            }
+        }
+        _ => {}
+    }
+    message
+}
+
