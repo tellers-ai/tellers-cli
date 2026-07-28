@@ -149,6 +149,49 @@ fn detect_video_speed_correction(path: &PathBuf) -> Result<Option<VideoSpeedCorr
     Ok(detect_mxf_half_rate_video(&probe))
 }
 
+/// amerge accepts up to 64 inputs; stay well below that — beyond a handful of
+/// discrete tracks the extra ones are almost never part of the program mix.
+const MAX_MERGED_AUDIO_STREAMS: usize = 8;
+
+/// Build the `-filter_complex` graph that merges discrete mono tracks to stereo.
+///
+/// Avid/broadcast MXF masters conventionally carry the stereo program as two
+/// discrete mono tracks rather than one stereo track. ffmpeg's default stream
+/// selection writes exactly one audio stream to the output, so relying on it
+/// silently drops half the program.
+///
+/// Returns None — keeping the default selection — unless there is more than one
+/// audio stream and every one of them is mono. Several multi-channel streams are
+/// usually alternate mixes or languages rather than channels of one mix, and
+/// merging those would blend two programs together; ffmpeg's default already
+/// picks the stream with the most channels there, which is the right one.
+fn build_mono_merge_filter(probe: &Value) -> Option<String> {
+    let streams = probe.get("streams").and_then(|s| s.as_array())?;
+    let audio_stream_count = streams
+        .iter()
+        .filter(|s| s.get("codec_type").and_then(|c| c.as_str()) == Some("audio"))
+        .count();
+    if audio_stream_count < 2 {
+        return None;
+    }
+    let all_mono = streams
+        .iter()
+        .filter(|s| s.get("codec_type").and_then(|c| c.as_str()) == Some("audio"))
+        .all(|s| s.get("channels").and_then(|c| c.as_u64()) == Some(1));
+    if !all_mono {
+        return None;
+    }
+
+    let count = audio_stream_count.min(MAX_MERGED_AUDIO_STREAMS);
+    let inputs: String = (0..count).map(|index| format!("[0:a:{}]", index)).collect();
+    // aformat rather than -ac 2: -ac on a filtergraph output is unreliable, and
+    // this also downmixes correctly when there are more than two mono tracks.
+    Some(format!(
+        "{}amerge=inputs={},aformat=channel_layouts=stereo[aout]",
+        inputs, count
+    ))
+}
+
 fn compute_video_essence_output_path(input: &PathBuf, out_base: &PathBuf) -> PathBuf {
     out_base.join(format!(
         "{}_video_essence.m2v",
@@ -283,6 +326,115 @@ mod tests {
         });
 
         assert!(detect_mxf_half_rate_video(&probe).is_none());
+    }
+
+    fn mono_audio(codec_name: &str) -> Value {
+        json!({"codec_type": "audio", "codec_name": codec_name, "channels": 1})
+    }
+
+    fn stereo_audio() -> Value {
+        json!({"codec_type": "audio", "codec_name": "aac", "channels": 2})
+    }
+
+    #[test]
+    fn merges_discrete_mono_tracks_to_stereo() {
+        // Avid/broadcast MXF master: the stereo program lives on two discrete
+        // mono tracks. Default stream selection would keep only the first.
+        let probe = json!({
+            "streams": [
+                {"codec_type": "video", "codec_name": "dnxhd"},
+                mono_audio("pcm_s24le"),
+                mono_audio("pcm_s24le"),
+            ]
+        });
+
+        assert_eq!(
+            build_mono_merge_filter(&probe).unwrap(),
+            "[0:a:0][0:a:1]amerge=inputs=2,aformat=channel_layouts=stereo[aout]"
+        );
+    }
+
+    #[test]
+    fn mono_merge_caps_input_count() {
+        let mut streams = vec![json!({"codec_type": "video", "codec_name": "dnxhd"})];
+        for _ in 0..(MAX_MERGED_AUDIO_STREAMS + 4) {
+            streams.push(mono_audio("pcm_s24le"));
+        }
+        let probe = json!({ "streams": streams });
+
+        let filter = build_mono_merge_filter(&probe).unwrap();
+
+        assert!(filter.contains(&format!("amerge=inputs={}", MAX_MERGED_AUDIO_STREAMS)));
+        assert!(filter.contains(&format!("[0:a:{}]", MAX_MERGED_AUDIO_STREAMS - 1)));
+        assert!(!filter.contains(&format!("[0:a:{}]", MAX_MERGED_AUDIO_STREAMS)));
+    }
+
+    #[test]
+    fn single_mono_track_is_not_merged() {
+        let probe = json!({
+            "streams": [
+                {"codec_type": "video", "codec_name": "h264"},
+                mono_audio("aac"),
+            ]
+        });
+
+        assert!(build_mono_merge_filter(&probe).is_none());
+    }
+
+    #[test]
+    fn multiple_stereo_streams_are_not_merged() {
+        // Alternate mixes/languages, not channels of one mix — merging them
+        // would blend two programs together.
+        let probe = json!({
+            "streams": [
+                {"codec_type": "video", "codec_name": "h264"},
+                stereo_audio(),
+                stereo_audio(),
+            ]
+        });
+
+        assert!(build_mono_merge_filter(&probe).is_none());
+    }
+
+    #[test]
+    fn mixed_channel_counts_are_not_merged() {
+        let probe = json!({
+            "streams": [
+                {"codec_type": "video", "codec_name": "h264"},
+                stereo_audio(),
+                mono_audio("pcm_s24le"),
+                mono_audio("pcm_s24le"),
+            ]
+        });
+
+        assert!(build_mono_merge_filter(&probe).is_none());
+    }
+
+    #[test]
+    fn audioless_source_is_not_merged() {
+        let probe = json!({"streams": [{"codec_type": "video", "codec_name": "h264"}]});
+
+        assert!(build_mono_merge_filter(&probe).is_none());
+    }
+
+    #[test]
+    fn probe_without_streams_is_not_merged() {
+        assert!(build_mono_merge_filter(&json!({})).is_none());
+    }
+
+    #[test]
+    fn streams_missing_channel_counts_are_not_merged() {
+        // Without a channels field we cannot tell discrete mono tracks from
+        // alternate mixes; keep ffmpeg's default selection.
+        let probe = json!({
+            "streams": [
+                {"codec_type": "video", "codec_name": "h264"},
+                {"codec_type": "audio", "codec_name": "pcm_s24le"},
+                {"codec_type": "audio", "codec_name": "pcm_s24le"},
+            ]
+        });
+
+        assert!(build_mono_merge_filter(&probe).is_none());
     }
 
     #[test]
@@ -452,6 +604,23 @@ pub fn create_rendition(
         input.clone()
     };
 
+    // extract_video_essence writes video only (-an), so there is nothing to merge
+    // on the speed-corrected path; only the original input can carry mono tracks.
+    let mono_merge_filter = if speed_correction.is_some() {
+        None
+    } else {
+        get_ffprobe_json(input)
+            .ok()
+            .flatten()
+            .as_ref()
+            .and_then(build_mono_merge_filter)
+    };
+    if mono_merge_filter.is_some() {
+        if let Some(f) = info_cb {
+            f("Source carries discrete mono audio tracks; merging them to stereo");
+        }
+    }
+
     let mut cmd = FfmpegCommand::new();
     cmd.overwrite()
         .input(source_input.to_string_lossy())
@@ -477,6 +646,20 @@ pub fn create_rendition(
     }
     if let Some(correction) = &speed_correction {
         cmd.args(["-r", &correction.frame_rate]);
+    }
+
+    if let Some(filter) = &mono_merge_filter {
+        // A complex filtergraph disables automatic output stream selection, so the
+        // video stream has to be mapped explicitly too. -map order sets output
+        // stream order: video first, then the merged audio.
+        cmd.args([
+            "-map",
+            "0:v:0",
+            "-filter_complex",
+            filter.as_str(),
+            "-map",
+            "[aout]",
+        ]);
     }
 
     cmd.args(["-movflags", "+faststart"]).codec_audio("aac");
