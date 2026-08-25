@@ -3792,7 +3792,8 @@ components:
           default: COMPLETE
         result:
           anyOf:
-          - {}
+          - type: object
+            additionalProperties: true
           - type: 'null'
           title: Result
       type: object
@@ -4009,7 +4010,8 @@ components:
           default: FAILED
         result:
           anyOf:
-          - {}
+          - type: object
+            additionalProperties: true
           - type: 'null'
           title: Result
       type: object
@@ -4541,7 +4543,8 @@ components:
           title: Progress
         result:
           anyOf:
-          - {}
+          - type: object
+            additionalProperties: true
           - type: 'null'
           title: Result
       type: object
