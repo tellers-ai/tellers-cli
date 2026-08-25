@@ -30,6 +30,8 @@ ${GENERATOR} generate \
 
 echo "Generated client at ${OUT_DIR}"
 
+"${ROOT_DIR}/scripts/patch_generated_api.sh"
+
 # Inject crate-wide lint allowances for generator naming quirks
 LIB_RS="${OUT_DIR}/src/lib.rs"
 if [ -f "${LIB_RS}" ]; then
@@ -42,4 +44,3 @@ if [ -f "${LIB_RS}" ]; then
   mv "${TMP_LIB}" "${LIB_RS}"
   echo "Patched ${LIB_RS} with lint allowances."
 fi
-

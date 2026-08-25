@@ -194,6 +194,49 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - accepts-api-key
+      summary: Delete Current User
+      description: "Delete the authenticated user's own account, everywhere it exists.\n\
+        \nRuns the same purge as ``POST /admin/delete_account`` \u2014 Stripe\nsubscriptions,\
+        \ assets, projects, chats, solely-owned groups, the SQL row,\nthe S3 objects\
+        \ and (in production only) the Firebase account \u2014 and returns\na summary\
+        \ instead of a stream. Deleting a Firebase account that is already\ngone is\
+        \ not an error, so this is safe to call from a Firebase\n``auth.user().onDelete``\
+        \ trigger.\n\nIrreversible. The email keeps its signup-history row, so registering\
+        \ again\nwith the same address earns no second signup grant."
+      operationId: delete_current_user_users_me_delete
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteAccountSummary'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /users/check_coupons:
     get:
       tags:
@@ -551,6 +594,447 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /tools/models:
+    get:
+      tags:
+      - accepts-api-key
+      summary: List Capabilities
+      description: Describe every `/tools/*` capability and the options each accepts.
+      operationId: list_capabilities_tools_models_get
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolsCapabilities'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /tools/generate/video:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Generate Video
+      operationId: generate_video_tools_generate_video_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateVideoRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateVideoResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /tools/generate/image:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Generate Image
+      operationId: generate_image_tools_generate_image_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateImageRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateImageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /tools/generate/audio:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Generate Audio
+      operationId: generate_audio_tools_generate_audio_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateAudioRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateAudioResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /tools/generate/tts:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Generate Tts
+      operationId: generate_tts_tools_generate_tts_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateTtsRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateTtsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /tools/search/stock:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Search Stock
+      operationId: search_stock_tools_search_stock_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchStockRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchStockResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /tools/search/assets:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Search Assets
+      operationId: search_assets_tools_search_assets_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchAssetsRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchAssetsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /tools/search/voices:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Search Voices
+      operationId: search_voices_tools_search_voices_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchVoicesRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchVoicesResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /video/description/{source_file_id}:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Request Description
+      description: 'Run the description (Gemini analysis) task on an asset.
+
+
+        Requires WRITE access on the asset or admin. ``needs_downscale`` reports whether
+        a
+
+        player/Gemini-compatible video rendition is missing. When it is, we encode
+        a
+
+        compatible proxy first and chain the description task after it (the downscale''s
+
+        ``link`` callback), so Gemini only runs once a usable rendition exists. The
+        returned
+
+        ``task_id`` always tracks the description task, so callers poll the same id
+        in both
+
+        cases.'
+      operationId: request_description_video_description__source_file_id__post
+      parameters:
+      - name: source_file_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Source File Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateDescriptionResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /video/transcript/{source_file_id}:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Request Transcript
+      description: 'Generate a transcript for a video/audio/master-clip asset through
+        the STT task.
+
+
+        Requires WRITE access on the asset or admin. Rejects asset types that cannot
+        be
+
+        transcribed with a 400. The task no-ops when a transcript was already generated.'
+      operationId: request_transcript_video_transcript__source_file_id__post
+      parameters:
+      - name: source_file_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Source File Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateTranscriptResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /asset/{asset_id}/visibility:
     put:
       tags:
@@ -588,54 +1072,6 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AssetVisibilityRequest'
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema: {}
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-  /asset/{asset_id}/reference:
-    put:
-      tags:
-      - accepts-api-key
-      summary: Set Asset Reference
-      description: Set reference flag for a single asset (SSE). WRITE required.
-      operationId: set_asset_reference_asset__asset_id__reference_put
-      parameters:
-      - name: asset_id
-        in: path
-        required: true
-        schema:
-          type: string
-          title: Asset Id
-      - name: x-api-key
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: X-Api-Key
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AssetReferenceRequest'
       responses:
         '200':
           description: Successful Response
@@ -1077,6 +1513,59 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /agent/tools/list:
+    get:
+      tags:
+      - accepts-api-key
+      summary: List Agent Tools
+      description: Return this user's visible agent tools, optionally filtered by
+        GenAI.
+      operationId: list_agent_tools_agent_tools_list_get
+      parameters:
+      - name: is_gen_ai
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          description: Filter the catalog to GenAI tools (true) or non-GenAI tools
+            (false).
+          title: Is Gen Ai
+        description: Filter the catalog to GenAI tools (true) or non-GenAI tools (false).
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                title: Response List Agent Tools Agent Tools List Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /agent/response/{chat_id}:
     delete:
       tags:
@@ -1132,7 +1621,11 @@ paths:
         \ When\n    omitted, the subscription starts from \"now\" \u2014 only events\
         \ produced\n    after the GET request arrives are delivered, no history is\
         \ replayed.\n  - ``after``: accepted for backward compatibility and currently\
-        \ ignored.\n    Use ``last_event_id`` instead."
+        \ ignored.\n    Use ``last_event_id`` instead.\n\nLike ``POST /agent/response``,\
+        \ the stream is terminated by a\n``tellers.stream.end`` event carrying the\
+        \ reason the turn ended. It is also\nemitted when the subscription finds the\
+        \ chat already finished, so a client\nthat reconnects late still gets a definitive\
+        \ answer instead of an idle\nsocket."
       operationId: stream_chat_messages_agent_response__chat_id__get
       parameters:
       - name: chat_id
@@ -1191,6 +1684,12 @@ paths:
       tags:
       - accepts-api-key
       summary: Process Agent Message
+      description: "Run the agent and stream its events as SSE.\n\nThe last event\
+        \ of the stream is always ``tellers.stream.end``, whose\n``reason`` tells\
+        \ the client why the turn ended (``completed``,\n``cancelled``, ``insufficient_tokens``,\
+        \ ``error``, ``interrupted``). A\nstream that closes *without* it was cut\
+        \ short by the network \u2014 reconnect\nwith ``GET /agent/response/{chat_id}``\
+        \ to pick the run back up."
       operationId: process_agent_message_agent_response_post
       parameters:
       - name: x-api-key
@@ -1844,11 +2343,25 @@ components:
             - medium
             - high
             - xhigh
+            - max
           - type: 'null'
           title: Llm Reasoning Effort
           description: 'Controls reasoning effort: higher values yield more precise
             but slower responses.'
           default: low
+        priority:
+          anyOf:
+          - type: string
+            enum:
+            - low
+            - default
+            - high
+          - type: 'null'
+          title: Priority
+          description: 'Priority level for the response: ''low'' (cheaper/slower),
+            ''default'' (standard), or ''high'' (premium/low-latency). Only levels
+            in the chosen model''s `available_priorities` (see GET /) take effect;
+            others fall back to ''default''.'
         context:
           anyOf:
           - $ref: '#/components/schemas/AppContext'
@@ -1857,18 +2370,20 @@ components:
         llm_model:
           type: string
           enum:
+          - gpt-5.6-sol
+          - gpt-5.6-terra
+          - gpt-5.6-luna
           - gpt-5.5-2026-04-23
           - gpt-5.5-pro-2026-04-23
           - gpt-5.4-pro-2026-03-05
           - gpt-5.4
           - gpt-5.4-mini
-          - gpt-5.4-nano
           - gpt-5.3-codex
           - gpt-5.2-2025-12-11
           - gpt-5-mini-2025-08-07
           title: Llm Model
           description: The model to use to generate the response.
-          default: gpt-5.5-2026-04-23
+          default: gpt-5.6-terra
         tools:
           items:
             type: string
@@ -1890,6 +2405,12 @@ components:
             will be executed in parallel. If False, the tool calls will be executed
             sequentially.
           default: false
+        compaction:
+          type: boolean
+          title: Compaction
+          description: Whether to enable automatic context cleanup when the selected
+            model supports it. This keeps long conversations manageable.
+          default: true
         override_llm_verbosity:
           anyOf:
           - type: string
@@ -1911,6 +2432,7 @@ components:
             - medium
             - high
             - xhigh
+            - max
           - type: 'null'
           title: Override Llm Reasoning Effort
           description: 'Override the reasoning effort of the LLM, controls reasoning
@@ -1921,6 +2443,19 @@ components:
           description: Whether to enable max mode. If True, the agent will use the
             maximum number of tokens allowed by the model.
           default: false
+        tool_exposure:
+          $ref: '#/components/schemas/ToolExposure'
+          description: "How much of each tool the model is shown up front. 'flat_search'\
+            \ (default) defers the parameter schemas behind the model's tool_search\
+            \ tool but keeps every tool name and description visible, because a deferred\
+            \ top-level function still shows both \u2014 roughly 10k tokens up front.\
+            \ 'search' groups deferred tools into namespaces, showing only namespace\
+            \ descriptions up front. 'flat' defers nothing \u2014 every schema up\
+            \ front as a plain function list, no tool_search, roughly 45k tokens \u2014\
+            \ and is how you rule out tool discovery entirely when the agent does\
+            \ not call a tool you expect it to. Both deferring values fall back to\
+            \ 'flat' on models without tool_search."
+          default: flat_search
         no_interaction:
           type: boolean
           title: No Interaction
@@ -1971,11 +2506,25 @@ components:
             - medium
             - high
             - xhigh
+            - max
           - type: 'null'
           title: Llm Reasoning Effort
           description: 'Controls reasoning effort: higher values yield more precise
             but slower responses.'
           default: low
+        priority:
+          anyOf:
+          - type: string
+            enum:
+            - low
+            - default
+            - high
+          - type: 'null'
+          title: Priority
+          description: 'Priority level for the response: ''low'' (cheaper/slower),
+            ''default'' (standard), or ''high'' (premium/low-latency). Only levels
+            in the chosen model''s `available_priorities` (see GET /) take effect;
+            others fall back to ''default''.'
         context:
           anyOf:
           - $ref: '#/components/schemas/AppContext'
@@ -1984,18 +2533,20 @@ components:
         llm_model:
           type: string
           enum:
+          - gpt-5.6-sol
+          - gpt-5.6-terra
+          - gpt-5.6-luna
           - gpt-5.5-2026-04-23
           - gpt-5.5-pro-2026-04-23
           - gpt-5.4-pro-2026-03-05
           - gpt-5.4
           - gpt-5.4-mini
-          - gpt-5.4-nano
           - gpt-5.3-codex
           - gpt-5.2-2025-12-11
           - gpt-5-mini-2025-08-07
           title: Llm Model
           description: The model to use to generate the response.
-          default: gpt-5.5-2026-04-23
+          default: gpt-5.6-terra
         tools:
           items:
             type: string
@@ -2017,6 +2568,12 @@ components:
             will be executed in parallel. If False, the tool calls will be executed
             sequentially.
           default: false
+        compaction:
+          type: boolean
+          title: Compaction
+          description: Whether to enable automatic context cleanup when the selected
+            model supports it. This keeps long conversations manageable.
+          default: true
         override_llm_verbosity:
           anyOf:
           - type: string
@@ -2038,6 +2595,7 @@ components:
             - medium
             - high
             - xhigh
+            - max
           - type: 'null'
           title: Override Llm Reasoning Effort
           description: 'Override the reasoning effort of the LLM, controls reasoning
@@ -2048,6 +2606,19 @@ components:
           description: Whether to enable max mode. If True, the agent will use the
             maximum number of tokens allowed by the model.
           default: false
+        tool_exposure:
+          $ref: '#/components/schemas/ToolExposure'
+          description: "How much of each tool the model is shown up front. 'flat_search'\
+            \ (default) defers the parameter schemas behind the model's tool_search\
+            \ tool but keeps every tool name and description visible, because a deferred\
+            \ top-level function still shows both \u2014 roughly 10k tokens up front.\
+            \ 'search' groups deferred tools into namespaces, showing only namespace\
+            \ descriptions up front. 'flat' defers nothing \u2014 every schema up\
+            \ front as a plain function list, no tool_search, roughly 45k tokens \u2014\
+            \ and is how you rule out tool discovery entirely when the agent does\
+            \ not call a tool you expect it to. Both deferring values fall back to\
+            \ 'flat' on models without tool_search."
+          default: flat_search
       additionalProperties: false
       type: object
       required:
@@ -2278,6 +2849,8 @@ components:
             $ref: '#/components/schemas/AvailableModel'
           type: array
           title: Available Llm Models
+        llm_model_tiers:
+          $ref: '#/components/schemas/LlmModelTier'
         presets:
           items:
             $ref: '#/components/schemas/TellersPreset'
@@ -2289,6 +2862,7 @@ components:
       - social_publishing_platforms
       - available_agent_tools
       - available_llm_models
+      - llm_model_tiers
       - presets
       title: AppSettings
     AssetAnalysisSettings:
@@ -2465,6 +3039,71 @@ components:
       title: AssetDownloadUrlResponse
       description: Media URL and how long it should remain valid (for refresh / UrlSource
         lifecycle).
+    AssetFrameRef:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+          description: The asset to take the frame from.
+        timestamp_seconds:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Timestamp Seconds
+          description: Which frame to take, in seconds, when the asset is a video.
+            Ignored if `is_last_frame` is true. Defaults to the first frame.
+        is_last_frame:
+          type: boolean
+          title: Is Last Frame
+          description: Take the asset's final frame, ignoring `timestamp_seconds`.
+          default: false
+        crop:
+          anyOf:
+          - $ref: '#/components/schemas/AssetImageCropRef'
+          - type: 'null'
+          description: Optional edge insets to crop before sending the frame to a
+            model.
+      additionalProperties: false
+      type: object
+      required:
+      - asset_id
+      title: AssetFrameRef
+      description: "A single frame of an asset \u2014 mirrors the tools' ``AssetFrame``."
+    AssetImageCropRef:
+      properties:
+        crop_l:
+          anyOf:
+          - type: number
+            exclusiveMaximum: 1.0
+            minimum: 0.0
+          - type: 'null'
+          title: Crop L
+        crop_r:
+          anyOf:
+          - type: number
+            exclusiveMaximum: 1.0
+            minimum: 0.0
+          - type: 'null'
+          title: Crop R
+        crop_t:
+          anyOf:
+          - type: number
+            exclusiveMaximum: 1.0
+            minimum: 0.0
+          - type: 'null'
+          title: Crop T
+        crop_b:
+          anyOf:
+          - type: number
+            exclusiveMaximum: 1.0
+            minimum: 0.0
+          - type: 'null'
+          title: Crop B
+      additionalProperties: false
+      type: object
+      title: AssetImageCropRef
+      description: "Optional edge insets \u2014 mirrors the tools' ``AssetImageCrop``."
     AssetInfosBatchItem:
       properties:
         asset_id:
@@ -2531,15 +3170,64 @@ components:
       - duration_second
       - file_type
       title: AssetMinimalInfoResponse
-    AssetReferenceRequest:
+    AssetPeriodRef:
       properties:
-        is_reference:
+        asset_id:
+          type: string
+          title: Asset Id
+          description: The asset to take the range from.
+        start_time:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: Start Time
+          description: Range start in seconds. Defaults to 0.
+        end_time:
+          anyOf:
+          - type: number
+            minimum: 0.0
+          - type: 'null'
+          title: End Time
+          description: Range end in seconds. Ignored if `till_the_end` is true. Defaults
+            to the end of the asset.
+        till_the_end:
           type: boolean
-          title: Is Reference
+          title: Till The End
+          description: Extend to the end of the asset, ignoring `end_time`.
+          default: false
+      additionalProperties: false
       type: object
       required:
-      - is_reference
-      title: AssetReferenceRequest
+      - asset_id
+      title: AssetPeriodRef
+      description: "A time range within an asset \u2014 mirrors the tools' ``AssetPeriod``."
+    AssetSearchResult:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        score:
+          type: number
+          title: Score
+        description:
+          type: string
+          title: Description
+        start_time_seconds:
+          type: number
+          title: Start Time Seconds
+        end_time_seconds:
+          type: number
+          title: End Time Seconds
+      additionalProperties: false
+      type: object
+      required:
+      - asset_id
+      - score
+      - description
+      - start_time_seconds
+      - end_time_seconds
+      title: AssetSearchResult
     AssetUploadRequest:
       properties:
         content_length:
@@ -2554,6 +3242,14 @@ components:
         file_type:
           $ref: '#/components/schemas/FileType'
           default: video
+        parent_asset_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Parent Asset Id
+          description: Optional asset_id of a folder to upload into. When set, the
+            file's inAppPath is treated as relative to this folder and the user must
+            have write access to it.
         multipart:
           type: boolean
           title: Multipart
@@ -2620,6 +3316,65 @@ components:
       required:
       - is_public_read
       title: AssetVisibilityRequest
+    AudioCapability:
+      properties:
+        models:
+          items:
+            $ref: '#/components/schemas/AudioModelCapability'
+          type: array
+          title: Models
+      additionalProperties: false
+      type: object
+      required:
+      - models
+      title: AudioCapability
+    AudioModelCapability:
+      properties:
+        id:
+          type: string
+          title: Id
+          description: Value to pass as `model`.
+        tool_id:
+          type: string
+          title: Tool Id
+          description: "The agent tool backing this model. Join to `available_agent_tools`\
+            \ in GET /settings for its display name, description and pricing \u2014\
+            \ kept there rather than duplicated here so there is one source of truth.\
+            \ Several models can share a tool."
+        required:
+          items:
+            type: string
+          type: array
+          title: Required
+          description: Request fields this model cannot do without. Everything else
+            in the request schema is optional.
+        min:
+          type: number
+          title: Min
+          description: Shortest `duration_seconds` accepted, in seconds.
+        max:
+          type: number
+          title: Max
+          description: Longest `duration_seconds` accepted, in seconds.
+        max_char:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Max Char
+          description: Longest `prompt` accepted, in characters. None = unbounded.
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - tool_id
+      - required
+      - min
+      - max
+      title: AudioModelCapability
+      description: "What one audio model accepts, as published by ``GET /tools/models``.\n\
+        \nAudio has no spatial dimensions \u2014 the only per-model constraint is\
+        \ the\nduration range, and the two models differ by more than an order of\n\
+        magnitude, which a flat request schema cannot express."
     AvailableModel:
       properties:
         name:
@@ -2635,12 +3390,22 @@ components:
           title: Compatible Models
         options:
           $ref: '#/components/schemas/TellersAvailableOptions'
+        available_priorities:
+          items:
+            type: string
+            enum:
+            - low
+            - default
+            - high
+          type: array
+          title: Available Priorities
       type: object
       required:
       - name
       - codename
       - compatible_models
       - options
+      - available_priorities
       title: AvailableModel
     BillingCatalog:
       properties:
@@ -3027,8 +3792,7 @@ components:
           default: COMPLETE
         result:
           anyOf:
-          - type: object
-            additionalProperties: true
+          - {}
           - type: 'null'
           title: Result
       type: object
@@ -3094,6 +3858,58 @@ components:
       - id
       - path
       title: CreateFolderResponse
+    DeleteAccountSummary:
+      properties:
+        dry_run:
+          type: boolean
+          title: Dry Run
+          default: false
+        assets_deleted:
+          type: integer
+          title: Assets Deleted
+          default: 0
+        chats_deleted:
+          type: integer
+          title: Chats Deleted
+          default: 0
+        groups_deleted:
+          type: integer
+          title: Groups Deleted
+          default: 0
+        s3_objects_deleted:
+          type: integer
+          title: S3 Objects Deleted
+          default: 0
+        stripe_subscriptions_cancelled:
+          type: integer
+          title: Stripe Subscriptions Cancelled
+          default: 0
+        stripe_customer_kept:
+          type: boolean
+          title: Stripe Customer Kept
+          default: false
+        firebase_deleted:
+          type: boolean
+          title: Firebase Deleted
+          default: false
+        firebase_skip_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Firebase Skip Reason
+          description: Why the Firebase account was left alone; null when it was deleted
+        signup_history_recorded:
+          type: boolean
+          title: Signup History Recorded
+          default: false
+        user_deleted:
+          type: boolean
+          title: User Deleted
+          default: false
+      type: object
+      title: DeleteAccountSummary
+      description: "What a completed purge removed \u2014 the ``done`` event, as a\
+        \ typed model."
     DuplicateAssetResponse:
       properties:
         id:
@@ -3104,6 +3920,71 @@ components:
       - id
       title: DuplicateAssetResponse
       description: New asset id after a successful duplicate.
+    ElevenLabsVoice:
+      properties:
+        voice_id:
+          type: string
+          title: Voice Id
+          description: The ElevenLabs voice ID.
+        name:
+          type: string
+          title: Name
+          description: Display name of the voice.
+        accent:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Accent
+          description: Accent of the voice, if provided.
+        gender:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Gender
+          description: Gender of the voice, if provided.
+        age:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Age
+          description: Age descriptor of the voice, if provided.
+        language:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+          description: Primary language of the voice, if provided.
+        category:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Category
+          description: Voice category (generated, cloned, premade, professional, famous,
+            high_quality).
+        descriptive:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Descriptive
+          description: Short descriptive text for the voice, if provided.
+        use_case:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Use Case
+          description: Primary use-case of the voice, if provided.
+        preview_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Preview Url
+          description: Preview audio URL for the voice, if provided.
+      additionalProperties: false
+      type: object
+      required:
+      - voice_id
+      - name
+      title: ElevenLabsVoice
     ExportProjectResponse:
       properties:
         task_id:
@@ -3128,8 +4009,7 @@ components:
           default: FAILED
         result:
           anyOf:
-          - type: object
-            additionalProperties: true
+          - {}
           - type: 'null'
           title: Result
       type: object
@@ -3179,11 +4059,290 @@ components:
       - group_clip
       - master_clip
       - aaf
+      - proj_original
       - folder
       - project
       - entity
       - teller_config
       title: FileType
+    GenerateAudioRequest:
+      properties:
+        prompt:
+          type: string
+          title: Prompt
+          description: Text prompt describing the audio.
+        model:
+          type: string
+          enum:
+          - music
+          - sfx
+          title: Model
+          description: '''music'' for a composed track, ''sfx'' for a sound effect.'
+          default: music
+        duration_seconds:
+          type: number
+          title: Duration Seconds
+          description: "Requested length. Accepted range differs per model \u2014\
+            \ music takes 10-300s and sfx 0.1-22s. See GET /tools/models."
+          default: 30.0
+        output_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Output Path
+          description: Optional library path for the generated audio file.
+      additionalProperties: false
+      type: object
+      required:
+      - prompt
+      title: GenerateAudioRequest
+    GenerateAudioResponse:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        duration_seconds:
+          type: number
+          title: Duration Seconds
+      additionalProperties: false
+      type: object
+      required:
+      - asset_id
+      - duration_seconds
+      title: GenerateAudioResponse
+    GenerateDescriptionResponse:
+      properties:
+        task_id:
+          type: string
+          title: Task Id
+        needs_downscale:
+          type: boolean
+          title: Needs Downscale
+      type: object
+      required:
+      - task_id
+      - needs_downscale
+      title: GenerateDescriptionResponse
+    GenerateImageRequest:
+      properties:
+        prompt:
+          type: string
+          title: Prompt
+          description: Text prompt for image generation.
+        model:
+          type: string
+          enum:
+          - p-image
+          - ideogram
+          - gpt-image
+          - banana
+          - banana-pro
+          - banana-flash
+          title: Model
+          description: Model to use.
+          default: p-image
+        format:
+          anyOf:
+          - type: string
+            enum:
+            - '16:9'
+            - '9:16'
+            - '1:1'
+            - '3:2'
+            - '2:3'
+            - '4:3'
+            - '3:4'
+          - type: 'null'
+          title: Format
+          description: "Aspect ratio. Defaults to 16:9. Left unset so an explicit\
+            \ choice can be told from the default \u2014 a model that would ignore\
+            \ it rejects it rather than silently producing another shape."
+        resolution:
+          anyOf:
+          - type: string
+            enum:
+            - '512'
+            - 1k
+            - 2k
+            - 4k
+          - type: 'null'
+          title: Resolution
+          description: Output resolution. Used by gpt-image (maps to pixel dimensions)
+            and banana models (512 / 1k / 2k / 4k). Ignored by p-image.
+        input_frame:
+          anyOf:
+          - type: string
+          - $ref: '#/components/schemas/AssetFrameRef'
+          - type: 'null'
+          title: Input Frame
+          description: "Source image, enabling edit/compose mode. An asset id, or\
+            \ an object pinning `timestamp_seconds` / `is_last_frame` when the asset\
+            \ is a video \u2014 see GET /tools/models."
+      additionalProperties: false
+      type: object
+      required:
+      - prompt
+      title: GenerateImageRequest
+    GenerateImageResponse:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+      additionalProperties: false
+      type: object
+      required:
+      - asset_id
+      title: GenerateImageResponse
+    GenerateTranscriptResponse:
+      properties:
+        task_id:
+          type: string
+          title: Task Id
+      type: object
+      required:
+      - task_id
+      title: GenerateTranscriptResponse
+    GenerateTtsRequest:
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          title: Prompt
+          description: Text to speak. Named `prompt` for consistency with the other
+            generate routes; the underlying model calls it `text`.
+        voice_id:
+          type: string
+          minLength: 1
+          title: Voice Id
+          description: "ElevenLabs voice id \u2014 obtain one from POST /tools/search/voices."
+        model:
+          type: string
+          enum:
+          - elevenlabs-v2
+          - elevenlabs-v3
+          title: Model
+          description: Model to use.
+          default: elevenlabs-v3
+        output_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Output Path
+          description: Optional library path for the generated audio file.
+      additionalProperties: false
+      type: object
+      required:
+      - prompt
+      - voice_id
+      title: GenerateTtsRequest
+    GenerateTtsResponse:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        duration_seconds:
+          type: number
+          title: Duration Seconds
+        voice_id:
+          type: string
+          title: Voice Id
+      additionalProperties: false
+      type: object
+      required:
+      - asset_id
+      - duration_seconds
+      - voice_id
+      title: GenerateTtsResponse
+    GenerateVideoRequest:
+      properties:
+        prompt:
+          type: string
+          title: Prompt
+          description: Text prompt describing the video to generate.
+        model:
+          type: string
+          enum:
+          - p-video
+          - kling
+          - kling-pro
+          - veo
+          - sora
+          - sora-pro
+          - runway
+          - wan
+          - ltx
+          - seedance
+          title: Model
+          description: Model to use.
+          default: p-video
+        format:
+          anyOf:
+          - type: string
+            enum:
+            - '16:9'
+            - '9:16'
+          - type: 'null'
+          title: Format
+          description: "Aspect ratio. Defaults to 16:9. Left unset so an explicit\
+            \ choice can be told from the default \u2014 a model that would ignore\
+            \ it rejects it rather than silently producing another shape."
+        resolution:
+          anyOf:
+          - type: string
+            enum:
+            - 480p
+            - 720p
+            - 1080p
+          - type: 'null'
+          title: Resolution
+          description: 'Output resolution. Supported values vary by model: p-video/veo
+            support 720p/1080p; wan/seedance support 480p/720p; kling/sora/runway
+            ignore this field.'
+        input_frame:
+          anyOf:
+          - type: string
+          - $ref: '#/components/schemas/AssetFrameRef'
+          - type: 'null'
+          title: Input Frame
+          description: Start (first) frame. An asset id for the default frame, or
+            an object pinning `timestamp_seconds` / `is_last_frame`.
+        output_frame:
+          anyOf:
+          - type: string
+          - $ref: '#/components/schemas/AssetFrameRef'
+          - type: 'null'
+          title: Output Frame
+          description: "End (last) frame. An asset id for the default frame, or an\
+            \ object pinning `timestamp_seconds` / `is_last_frame`. Not every model\
+            \ accepts an end frame \u2014 see GET /tools/models."
+        input_audio:
+          anyOf:
+          - type: string
+          - $ref: '#/components/schemas/AssetPeriodRef'
+          - type: 'null'
+          title: Input Audio
+          description: "Audio reference. An asset id for the whole asset, or an object\
+            \ pinning `start_time` / `end_time`. Not every model accepts audio, and\
+            \ only some accept a range \u2014 see GET /tools/models."
+      additionalProperties: false
+      type: object
+      required:
+      - prompt
+      title: GenerateVideoRequest
+    GenerateVideoResponse:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        duration_seconds:
+          type: number
+          title: Duration Seconds
+      additionalProperties: false
+      type: object
+      required:
+      - asset_id
+      - duration_seconds
+      title: GenerateVideoResponse
     HTTPValidationError:
       properties:
         detail:
@@ -3193,6 +4352,136 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    ImageCapability:
+      properties:
+        models:
+          items:
+            $ref: '#/components/schemas/ImageModelCapability'
+          type: array
+          title: Models
+      additionalProperties: false
+      type: object
+      required:
+      - models
+      title: ImageCapability
+    ImageModelCapability:
+      properties:
+        id:
+          type: string
+          title: Id
+          description: Value to pass as `model`.
+        tool_id:
+          type: string
+          title: Tool Id
+          description: "The agent tool backing this model. Join to `available_agent_tools`\
+            \ in GET /settings for its display name, description and pricing \u2014\
+            \ kept there rather than duplicated here so there is one source of truth.\
+            \ Several models can share a tool."
+        required:
+          items:
+            type: string
+          type: array
+          title: Required
+          description: Request fields this model cannot do without. Everything else
+            in the request schema is optional.
+        formats:
+          items:
+            type: string
+          type: array
+          title: Formats
+          description: Aspect ratios acted on. Empty = field ignored.
+        resolutions:
+          items:
+            type: string
+          type: array
+          title: Resolutions
+          description: Resolutions acted on. Empty = field ignored.
+        supports_input_frame:
+          type: boolean
+          title: Supports Input Frame
+          description: Whether `input_frame` (source image) is used.
+        supports_frame_timestamp:
+          type: boolean
+          title: Supports Frame Timestamp
+          description: Whether `input_frame` may pin a `timestamp_seconds` / `is_last_frame`.
+            False means only a bare asset id is accepted.
+        max_char:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Max Char
+          description: Longest `prompt` accepted, in characters. None = unbounded.
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - tool_id
+      - required
+      - formats
+      - resolutions
+      - supports_input_frame
+      - supports_frame_timestamp
+      title: ImageModelCapability
+      description: "What one image model accepts, as published by ``GET /tools/models``.\n\
+        \n``formats`` / ``resolutions`` list the values the model actually *acts on*.\n\
+        An empty list means the field is ignored \u2014 gpt-image derives its dimensions\n\
+        from ``resolution`` and pays no attention to ``format``, while p-image is\n\
+        the reverse."
+    LlmModelTier:
+      properties:
+        low:
+          anyOf:
+          - type: string
+            enum:
+            - gpt-5.6-sol
+            - gpt-5.6-terra
+            - gpt-5.6-luna
+            - gpt-5.5-2026-04-23
+            - gpt-5.5-pro-2026-04-23
+            - gpt-5.4-pro-2026-03-05
+            - gpt-5.4
+            - gpt-5.4-mini
+            - gpt-5.3-codex
+            - gpt-5.2-2025-12-11
+            - gpt-5-mini-2025-08-07
+          - type: 'null'
+          title: Low
+        medium:
+          anyOf:
+          - type: string
+            enum:
+            - gpt-5.6-sol
+            - gpt-5.6-terra
+            - gpt-5.6-luna
+            - gpt-5.5-2026-04-23
+            - gpt-5.5-pro-2026-04-23
+            - gpt-5.4-pro-2026-03-05
+            - gpt-5.4
+            - gpt-5.4-mini
+            - gpt-5.3-codex
+            - gpt-5.2-2025-12-11
+            - gpt-5-mini-2025-08-07
+          - type: 'null'
+          title: Medium
+        high:
+          anyOf:
+          - type: string
+            enum:
+            - gpt-5.6-sol
+            - gpt-5.6-terra
+            - gpt-5.6-luna
+            - gpt-5.5-2026-04-23
+            - gpt-5.5-pro-2026-04-23
+            - gpt-5.4-pro-2026-03-05
+            - gpt-5.4
+            - gpt-5.4-mini
+            - gpt-5.3-codex
+            - gpt-5.2-2025-12-11
+            - gpt-5-mini-2025-08-07
+          - type: 'null'
+          title: High
+      type: object
+      title: LlmModelTier
     MultipartAbortRequest:
       properties:
         asset_id:
@@ -3252,8 +4541,7 @@ components:
           title: Progress
         result:
           anyOf:
-          - type: object
-            additionalProperties: true
+          - {}
           - type: 'null'
           title: Result
       type: object
@@ -3353,6 +4641,246 @@ components:
       required:
       - task_id
       title: RequestTaskResponse
+    SearchAssetsRequest:
+      properties:
+        prompt:
+          type: string
+          title: Prompt
+          description: Natural language query to search for.
+        search_mode:
+          type: string
+          enum:
+          - by_scene_keyframe
+          - by_scene_description
+          - by_scene_sequence
+          title: Search Mode
+          description: Semantic search mode (embedding-based, not keyword matching).
+            by_scene_keyframe matches on keyframe embeddings, by_scene_description
+            on single-scene description embeddings, and by_scene_sequence on aggregate
+            consecutive-scene embeddings.
+          default: by_scene_keyframe
+        folder:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Folder
+          description: Folder path to restrict the search to (e.g. '/my-project').
+        format:
+          anyOf:
+          - type: string
+            enum:
+            - '16:9'
+            - '9:16'
+          - type: 'null'
+          title: Format
+          description: Filter by aspect ratio.
+        limit:
+          type: integer
+          maximum: 50.0
+          minimum: 1.0
+          title: Limit
+          description: Number of results.
+          default: 10
+      additionalProperties: false
+      type: object
+      required:
+      - prompt
+      title: SearchAssetsRequest
+    SearchAssetsResponse:
+      properties:
+        results:
+          items:
+            $ref: '#/components/schemas/AssetSearchResult'
+          type: array
+          title: Results
+      additionalProperties: false
+      type: object
+      required:
+      - results
+      title: SearchAssetsResponse
+    SearchMeCapability:
+      properties:
+        required:
+          items:
+            type: string
+          type: array
+          title: Required
+        search_modes:
+          items:
+            type: string
+          type: array
+          title: Search Modes
+          description: Values accepted for `search_mode`.
+        formats:
+          items:
+            type: string
+          type: array
+          title: Formats
+          description: Values accepted for `format`.
+        min_limit:
+          type: integer
+          title: Min Limit
+        max_limit:
+          type: integer
+          title: Max Limit
+        supports_folder:
+          type: boolean
+          title: Supports Folder
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - required
+      - search_modes
+      - formats
+      - min_limit
+      - max_limit
+      title: SearchMeCapability
+    SearchStockCapability:
+      properties:
+        required:
+          items:
+            type: string
+          type: array
+          title: Required
+        types:
+          items:
+            type: string
+          type: array
+          title: Types
+          description: Values accepted for `type`.
+        formats:
+          items:
+            type: string
+          type: array
+          title: Formats
+          description: Values accepted for `format`.
+        min_limit:
+          type: integer
+          title: Min Limit
+        max_limit:
+          type: integer
+          title: Max Limit
+      additionalProperties: false
+      type: object
+      required:
+      - required
+      - types
+      - formats
+      - min_limit
+      - max_limit
+      title: SearchStockCapability
+    SearchStockRequest:
+      properties:
+        prompt:
+          type: string
+          title: Prompt
+          description: Search query for stock content.
+        type:
+          type: string
+          enum:
+          - image
+          - video
+          title: Type
+          description: Type of content to search.
+          default: video
+        format:
+          anyOf:
+          - type: string
+            enum:
+            - '16:9'
+            - '9:16'
+          - type: 'null'
+          title: Format
+          description: Filter by aspect ratio.
+        limit:
+          type: integer
+          maximum: 80.0
+          minimum: 1.0
+          title: Limit
+          description: Number of results.
+          default: 10
+      additionalProperties: false
+      type: object
+      required:
+      - prompt
+      title: SearchStockRequest
+    SearchStockResponse:
+      properties:
+        results:
+          items:
+            $ref: '#/components/schemas/StockAssetSearchResult'
+          type: array
+          title: Results
+      additionalProperties: false
+      type: object
+      required:
+      - results
+      title: SearchStockResponse
+    SearchVoicesCapability:
+      properties:
+        required:
+          items:
+            type: string
+          type: array
+          title: Required
+        min_limit:
+          type: integer
+          title: Min Limit
+        max_limit:
+          type: integer
+          title: Max Limit
+        supports_language:
+          type: boolean
+          title: Supports Language
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - required
+      - min_limit
+      - max_limit
+      title: SearchVoicesCapability
+    SearchVoicesRequest:
+      properties:
+        search:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Search
+          description: Free-text query (name, description, use case).
+        language:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Language
+          description: Filter by language code, e.g. 'en'.
+        limit:
+          type: integer
+          maximum: 100.0
+          minimum: 1.0
+          title: Limit
+          description: Number of results.
+          default: 10
+      additionalProperties: false
+      type: object
+      title: SearchVoicesRequest
+    SearchVoicesResponse:
+      properties:
+        voices:
+          items:
+            $ref: '#/components/schemas/ElevenLabsVoice'
+          type: array
+          title: Voices
+        has_more:
+          type: boolean
+          title: Has More
+      additionalProperties: false
+      type: object
+      required:
+      - voices
+      - has_more
+      title: SearchVoicesResponse
     SocialPublishingPlatformSetting:
       properties:
         id:
@@ -3440,17 +4968,27 @@ components:
           - type: number
           - type: 'null'
           title: Duration Seconds
-        sora_remix_id:
+        provider_generation_id:
           anyOf:
           - type: string
           - type: 'null'
-          title: Sora Remix Id
-        sora_remix_id_created_at:
+          title: Provider Generation Id
+        provider_generation_id_created_at:
           anyOf:
           - type: string
             format: date-time
           - type: 'null'
-          title: Sora Remix Id Created At
+          title: Provider Generation Id Created At
+        generated_by_llm_model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Generated By Llm Model
+        prompt_used_to_create:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Prompt Used To Create
         umid:
           anyOf:
           - type: string
@@ -3485,6 +5023,69 @@ components:
       - description
       - keywords
       title: SourceFileInfo
+    SpeechModelCapability:
+      properties:
+        id:
+          type: string
+          title: Id
+          description: Value to pass as `model`.
+        tool_id:
+          type: string
+          title: Tool Id
+          description: "The agent tool backing this model. Join to `available_agent_tools`\
+            \ in GET /settings for its display name, description and pricing \u2014\
+            \ kept there rather than duplicated here so there is one source of truth.\
+            \ Several models can share a tool."
+        required:
+          items:
+            type: string
+          type: array
+          title: Required
+          description: Request fields this model cannot do without. Everything else
+            in the request schema is optional.
+        max_char:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Max Char
+          description: Longest `prompt` accepted, in characters. None = unbounded.
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - tool_id
+      - required
+      title: SpeechModelCapability
+      description: 'A speech model. Voice choice is the only variable, and it comes
+        from
+
+        ``POST /tools/search/voices`` rather than from a fixed list here.'
+    StockAssetSearchResult:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+          description: The ID of the asset.
+        title:
+          type: string
+          title: Title
+          description: The title of the asset.
+        description:
+          type: string
+          title: Description
+          description: The description of the asset.
+        duration_seconds:
+          type: number
+          title: Duration Seconds
+          description: The duration of the asset in seconds. 0.0 for images.
+      additionalProperties: false
+      type: object
+      required:
+      - asset_id
+      - title
+      - description
+      - duration_seconds
+      title: StockAssetSearchResult
     TaskResponse:
       properties:
         id:
@@ -3566,9 +5167,14 @@ components:
               - medium
               - high
               - xhigh
+              - max
             - type: 'null'
           type: array
           title: Reasoning Effort
+        compaction:
+          type: boolean
+          title: Compaction
+          default: false
       type: object
       required:
       - verbosity
@@ -3583,12 +5189,14 @@ components:
           anyOf:
           - type: string
             enum:
+            - gpt-5.6-sol
+            - gpt-5.6-terra
+            - gpt-5.6-luna
             - gpt-5.5-2026-04-23
             - gpt-5.5-pro-2026-04-23
             - gpt-5.4-pro-2026-03-05
             - gpt-5.4
             - gpt-5.4-mini
-            - gpt-5.4-nano
             - gpt-5.3-codex
             - gpt-5.2-2025-12-11
             - gpt-5-mini-2025-08-07
@@ -3614,6 +5222,7 @@ components:
             - medium
             - high
             - xhigh
+            - max
           - type: 'null'
           title: Reasoning Effort
         verbosity:
@@ -3625,11 +5234,90 @@ components:
             - high
           - type: 'null'
           title: Verbosity
+        priority:
+          anyOf:
+          - type: string
+            enum:
+            - low
+            - default
+            - high
+          - type: 'null'
+          title: Priority
       type: object
       required:
       - reasoning_effort
       - verbosity
+      - priority
       title: TellersPresetOptions
+    ToolExposure:
+      type: string
+      enum:
+      - search
+      - flat_search
+      - flat
+      title: ToolExposure
+      description: "How much of a tool the model is shown up front.\n\nWhat deferral\
+        \ hides depends on whether the tool is in a namespace, and the\ndifference\
+        \ is the whole point of this enum. Per OpenAI's tool search guide:\na deferred\
+        \ tool *inside a namespace* is hidden completely \u2014 the model sees\nonly\
+        \ the namespace name and description \u2014 while a deferred *top-level*\n\
+        function still shows its name and description, so deferral there only holds\n\
+        back the parameter schema. Measured over the current 56 tools:\n\n==============\
+        \  ============================  ==========\nexposure        visible up front\
+        \              tokens\n==============  ============================  ==========\n\
+        ``search``      11 namespace descriptions          ~0.5k\n``flat_search``\
+        \ 56 tool names + descriptions      ~10.2k\n``flat``        the above plus\
+        \ every schema       ~44.6k\n==============  ============================\
+        \  ==========\n\n``search`` uses namespace descriptions and hides the names\
+        \ inside them;\n``flat_search`` exposes top-level tool names and descriptions\
+        \ while\ndeferring only parameter schemas. ``flat`` removes deferral entirely.\n\
+        \nGrouping without deferring is deliberately not offered: namespaces exist\n\
+        to make search legible, so once every schema is up front they buy nothing\n\
+        and cost their own descriptions.\n\nThe member value is what the API accepts\
+        \ on the wire."
+    ToolsCapabilities:
+      properties:
+        video:
+          $ref: '#/components/schemas/VideoCapability'
+        image:
+          $ref: '#/components/schemas/ImageCapability'
+        audio:
+          $ref: '#/components/schemas/AudioCapability'
+        tts:
+          $ref: '#/components/schemas/TtsCapability'
+        search_stock:
+          $ref: '#/components/schemas/SearchStockCapability'
+        search_me:
+          $ref: '#/components/schemas/SearchMeCapability'
+        search_voices:
+          $ref: '#/components/schemas/SearchVoicesCapability'
+      additionalProperties: false
+      type: object
+      required:
+      - video
+      - image
+      - audio
+      - tts
+      - search_stock
+      - search_me
+      - search_voices
+      title: ToolsCapabilities
+      description: "Every ``/tools/*`` capability, keyed by area.\n\nGrouped rather\
+        \ than returned as one flat list so a client can jump straight\nto the area\
+        \ it cares about \u2014 ``image`` to pick a model, ``search_me`` to see\n\
+        which search modes exist \u2014 instead of filtering."
+    TtsCapability:
+      properties:
+        models:
+          items:
+            $ref: '#/components/schemas/SpeechModelCapability'
+          type: array
+          title: Models
+      additionalProperties: false
+      type: object
+      required:
+      - models
+      title: TtsCapability
     UpdateUserRequest:
       properties:
         first_name:
@@ -3712,3 +5400,107 @@ components:
       - embedding_strategy
       - dimensionality
       title: VersionReference
+    VideoCapability:
+      properties:
+        models:
+          items:
+            $ref: '#/components/schemas/VideoModelCapability'
+          type: array
+          title: Models
+      additionalProperties: false
+      type: object
+      required:
+      - models
+      title: VideoCapability
+    VideoModelCapability:
+      properties:
+        id:
+          type: string
+          title: Id
+          description: Value to pass as `model`.
+        tool_id:
+          type: string
+          title: Tool Id
+          description: "The agent tool backing this model. Join to `available_agent_tools`\
+            \ in GET /settings for its display name, description and pricing \u2014\
+            \ kept there rather than duplicated here so there is one source of truth.\
+            \ Several models can share a tool."
+        required:
+          items:
+            type: string
+          type: array
+          title: Required
+          description: Request fields this model cannot do without. Everything else
+            in the request schema is optional.
+        formats:
+          items:
+            type: string
+          type: array
+          title: Formats
+          description: Aspect ratios acted on.
+        resolutions:
+          items:
+            type: string
+          type: array
+          title: Resolutions
+          description: Resolutions acted on. Empty = field ignored.
+        supports_input_frame:
+          type: boolean
+          title: Supports Input Frame
+          description: Whether `input_frame` (start frame) is used.
+        supports_output_frame:
+          type: boolean
+          title: Supports Output Frame
+          description: Whether `output_frame` (end frame) is used. Pair it with `input_frame`;
+            some models reject an end frame on its own.
+        supports_input_audio:
+          type: boolean
+          title: Supports Input Audio
+          description: Whether `input_audio` (audio reference) is used.
+        supports_frame_timestamp:
+          type: boolean
+          title: Supports Frame Timestamp
+          description: Whether a frame reference may pin a `timestamp_seconds` / `is_last_frame`.
+            False means only a bare asset id is accepted.
+        format_requires_resolution:
+          type: boolean
+          title: Format Requires Resolution
+          description: This model only acts on `format` when `resolution` is also
+            given; sent alone it would be ignored, so it is rejected.
+          default: false
+        format_ignored_with_input_frame:
+          type: boolean
+          title: Format Ignored With Input Frame
+          description: This model takes its aspect ratio from `input_frame` whenever
+            one is given; `format` sent alongside would be ignored, so the pair is
+            rejected. Crop the frame to the shape you want instead.
+          default: false
+        supports_audio_range:
+          type: boolean
+          title: Supports Audio Range
+          description: Whether `input_audio` may pin a time range. False means only
+            a bare asset id is accepted.
+        max_char:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Max Char
+          description: Longest `prompt` accepted, in characters. None = unbounded.
+      additionalProperties: false
+      type: object
+      required:
+      - id
+      - tool_id
+      - required
+      - formats
+      - resolutions
+      - supports_input_frame
+      - supports_output_frame
+      - supports_input_audio
+      - supports_frame_timestamp
+      - supports_audio_range
+      title: VideoModelCapability
+      description: "What one video model accepts, as published by ``GET /tools/models``.\n\
+        \n``formats`` / ``resolutions`` list the values the model actually *acts on*.\n\
+        An empty list means the field is ignored and the model's native output is\n\
+        used \u2014 not that any value is accepted."
