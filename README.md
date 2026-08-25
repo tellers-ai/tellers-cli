@@ -115,3 +115,7 @@ Generate the client crate:
 ```bash
 scripts/generate_api.sh
 ```
+
+The script uses the same relaxed validation settings as CI because the backend's
+FastAPI-generated OpenAPI 3.1 schema contains nullable constructs that the
+generator's strict validator rejects.
