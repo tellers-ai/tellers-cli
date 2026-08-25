@@ -1914,6 +1914,7 @@ dependencies = [
  "crossterm",
  "dirs",
  "ffmpeg-sidecar",
+ "futures-util",
  "log",
  "mime_guess",
  "ratatui",

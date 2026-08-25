@@ -25,6 +25,12 @@ fn main() {
                         std::process::exit(1);
                     }
                 }
+                commands::asset::AssetCommand::Download(args) => {
+                    if let Err(error) = commands::asset::download_run(args) {
+                        eprintln!("error: {}", error);
+                        std::process::exit(1);
+                    }
+                }
                 commands::asset::AssetCommand::SetAnonymousRead(args) => {
                     if let Err(error) = commands::asset::set_anonymous_read_run(args) {
                         eprintln!("error: {}", error);
