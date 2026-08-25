@@ -94,6 +94,16 @@ tellers upload /path/to/media_folder
 
 Files ≥ 10 MiB use **multipart S3 upload** (presigned part URLs, then complete); smaller files use a single presigned PUT.
 
+### Asset Download Command
+
+Download a video asset using its asset ID:
+
+```bash
+tellers asset download <asset-id> --output /path/to/video.mp4
+```
+
+Use `--quality highest|lowest|original|480p|720p|1080p` to select a rendition. Existing files are protected by default; pass `--force` to replace one.
+
 ## Implementation Notes
 
 - Argument parsing via Clap 4.x. See `clap` docs: [docs.rs/clap](https://docs.rs/clap/latest/clap/)
