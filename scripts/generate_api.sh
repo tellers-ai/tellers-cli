@@ -26,9 +26,7 @@ ${GENERATOR} generate \
   -i "${SPEC_PATH}" \
   -g rust \
   -o "${OUT_DIR}" \
-  --additional-properties=packageName=tellers_api_client,packageVersion=0.1.0,library=reqwest,supportAsync=true,reqwestClient=true \
-  --skip-validate-spec \
-  --strict-spec=false
+  --additional-properties=packageName=tellers_api_client,packageVersion=0.1.0,library=reqwest,supportAsync=true,reqwestClient=true
 
 echo "Generated client at ${OUT_DIR}"
 
