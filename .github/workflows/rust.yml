@@ -25,6 +25,8 @@ jobs:
             -o generated/tellers_api_client
             --additional-properties=packageName=tellers_api_client,packageVersion=0.1.0,library=reqwest,supportAsync=true,reqwestClient=true
             --skip-validate-spec --strict-spec=false
+      - name: Patch generated API client
+        run: scripts/patch_generated_api.sh
       - name: Build
         run: cargo build --verbose
       - name: Run tests
