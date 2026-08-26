@@ -8,12 +8,16 @@ pub fn get_api_base() -> String {
 pub fn get_api_key(api_key_arg: Option<String>) -> Result<String, String> {
     api_key_arg
         .or_else(|| std::env::var("TELLERS_API_KEY").ok())
-        .ok_or_else(|| "TELLERS_API_KEY not set".to_string())
+        .or_else(|| crate::commands::auth::saved_access_token().map(|_| String::new()))
+        .ok_or_else(|| {
+            "TELLERS_API_KEY not set; run `tellers login` or set TELLERS_API_KEY".to_string()
+        })
 }
 
 pub fn get_bearer_header(auth_bearer_arg: Option<String>) -> Option<String> {
     let bearer_env = auth_bearer_arg
         .or_else(|| std::env::var("TELLERS_AUTH_BEARER").ok())
+        .or_else(crate::commands::auth::saved_access_token)
         .filter(|v| !v.is_empty());
 
     bearer_env.as_deref().map(|b| {
@@ -49,4 +53,3 @@ pub fn format_api_error<E: std::fmt::Debug>(e: &tellers_api_client::apis::Error<
     }
     message
 }
-

@@ -27,6 +27,19 @@ Set your API key:
 export TELLERS_API_KEY=sk_...
 ```
 
+Or sign in with your Tellers account. This opens `auth.tellers.ai` in your
+browser, completes a PKCE login through a local callback, and saves a
+refreshable session for subsequent commands:
+
+```bash
+tellers login
+tellers logout
+```
+
+The session is stored in the platform configuration directory with owner-only
+permissions. Access tokens are refreshed automatically before commands run;
+the API-key environment variable remains supported for backwards compatibility.
+
 Optional:
 
 ```bash
