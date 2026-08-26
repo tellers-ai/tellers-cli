@@ -43,6 +43,10 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Command {
+    /// Sign in with a Tellers account in the browser.
+    Login,
+    /// Remove the saved Tellers login.
+    Logout,
     Asset(AssetArgs),
     Project(ProjectArgs),
     Task(TaskArgs),
