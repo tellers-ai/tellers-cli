@@ -16,7 +16,35 @@ fn main() {
 
     let cli = Cli::parse();
 
+    if !matches!(
+        &cli.command,
+        Some(cli::Command::Login) | Some(cli::Command::Logout)
+    ) {
+        if let Err(error) = tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(commands::auth::refresh_if_needed())
+        {
+            eprintln!("error: {}", error);
+            std::process::exit(1);
+        }
+    }
+
     match cli.command {
+        Some(cli::Command::Login) => {
+            if let Err(error) = tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(commands::auth::login())
+            {
+                eprintln!("error: {}", error);
+                std::process::exit(1);
+            }
+        }
+        Some(cli::Command::Logout) => {
+            if let Err(error) = commands::auth::logout() {
+                eprintln!("error: {}", error);
+                std::process::exit(1);
+            }
+        }
         Some(cli::Command::Asset(asset_args)) => {
             match asset_args.command {
                 commands::asset::AssetCommand::List(list_args) => {
