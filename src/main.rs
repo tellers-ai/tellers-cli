@@ -75,6 +75,12 @@ fn main() {
                         std::process::exit(1);
                     }
                 }
+                commands::project::ProjectCommand::ExportOtio(args) => {
+                    if let Err(error) = commands::project::export_otio_run(args) {
+                        eprintln!("error: {}", error);
+                        std::process::exit(1);
+                    }
+                }
             }
         }
         Some(cli::Command::Task(task_args)) => {
