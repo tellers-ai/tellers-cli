@@ -918,7 +918,7 @@ fn run_two_queue_pipeline(
                     &user_id,
                     file_info.upload_path.as_path(),
                     &in_app_path_str,
-                    &upload_resp.asset_id,
+                    &upload_resp.asset_id.to_string(),
                     &upload_request_id,
                 ) {
                     let _ = progress_handle
@@ -926,7 +926,7 @@ fn run_two_queue_pipeline(
                 }
                 if let Ok(mut guard) = uploaded_asset_ids_consumer.lock() {
                     guard.push(UploadedAssetInfo {
-                        asset_id: upload_resp.asset_id.clone(),
+                        asset_id: upload_resp.asset_id.to_string(),
                         local_path: file_info.original_path.to_string_lossy().to_string(),
                     });
                 }
@@ -1259,7 +1259,7 @@ async fn upload_with_per_file_presigned(
             if success {
                 if let Ok(mut guard) = uploaded_asset_ids_clone.lock() {
                     guard.push(UploadedAssetInfo {
-                        asset_id: upload_resp.asset_id.clone(),
+                        asset_id: upload_resp.asset_id.to_string(),
                         local_path: file_info.original_path.to_string_lossy().to_string(),
                     });
                 }
@@ -1840,7 +1840,7 @@ async fn upload_single_file(
         user_id,
         file_path.as_path(),
         in_app_path,
-        &upload_resp.asset_id,
+        &upload_resp.asset_id.to_string(),
         upload_request_id,
     ) {
         if let Some(ph) = progress_handle {

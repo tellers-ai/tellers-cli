@@ -7,6 +7,8 @@ use futures_util::{StreamExt, TryStreamExt};
 use serde_json::Value;
 use tokio::io::AsyncWriteExt;
 
+use tellers_api_client::apis::accepts_api_key_api as api;
+
 use crate::commands::api_config;
 use crate::output;
 
@@ -102,6 +104,9 @@ pub struct ExportOtioArgs {
     #[arg(long)]
     pub force: bool,
 
+    #[arg(long, env = "TELLERS_API_KEY", hide = true)]
+    pub api_key: Option<String>,
+
     #[arg(long, env = "TELLERS_AUTH_BEARER", hide = true)]
     pub auth_bearer: Option<String>,
 }
@@ -129,18 +134,15 @@ pub fn run(args: ExportOtioArgs) -> Result<(), String> {
         ));
     }
 
-    // This endpoint only accepts user sessions, not API keys.
-    let bearer_header =
-        api_config::get_bearer_header(args.auth_bearer.clone()).ok_or_else(|| {
-            "OTIO export requires a user session; run `tellers login` or set TELLERS_AUTH_BEARER"
-                .to_string()
-        })?;
+    let cfg = api_config::create_config();
+    let api_key = api_config::get_api_key(args.api_key.clone())?;
+    let bearer_header = api_config::get_bearer_header(args.auth_bearer.clone());
 
     tokio::runtime::Runtime::new()
         .map_err(|e| format!("failed to start runtime: {}", e))?
         .block_on(async move {
             let client = reqwest::Client::new();
-            let otio = fetch_otio(&client, &args, &bearer_header).await?;
+            let otio = fetch_otio(&cfg, &args, &api_key, bearer_header.as_deref()).await?;
             let partial = partial_path(&destination);
             let result = match format {
                 OtioFormat::Otio => write_otio(&otio, &partial).await,
@@ -181,40 +183,23 @@ fn resolve_format(
 }
 
 async fn fetch_otio(
-    client: &reqwest::Client,
+    cfg: &tellers_api_client::apis::configuration::Configuration,
     args: &ExportOtioArgs,
-    bearer_header: &str,
+    api_key: &str,
+    bearer_header: Option<&str>,
 ) -> Result<Value, String> {
-    let url = format!(
-        "{}/project/{}/export_tellers_otio",
-        api_config::get_api_base().trim_end_matches('/'),
-        url::form_urlencoded::byte_serialize(args.project_id.as_bytes()).collect::<String>()
-    );
-    let response = client
-        .get(&url)
-        .header(reqwest::header::AUTHORIZATION, bearer_header)
-        .query(&[
-            ("input_rendition", args.rendition.as_query().to_string()),
-            ("presign_expires_in", args.presign_expires_in.to_string()),
-            ("use_redirect_urls", args.redirect_urls.to_string()),
-        ])
-        .send()
-        .await
-        .map_err(|e| format!("OTIO export request failed: {}", e))?;
-
-    let status = response.status();
-    if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        let mut message = format!("OTIO export failed; http_status: {}", status);
-        if !body.is_empty() {
-            message.push_str(&format!("; response: {}", body));
-        }
-        return Err(message);
-    }
-    response
-        .json::<Value>()
-        .await
-        .map_err(|e| format!("failed to decode OTIO export: {}", e))
+    let otio = api::export_tellers_otio_project_project_id_export_tellers_otio_get(
+        cfg,
+        &args.project_id,
+        Some(args.rendition.as_query()),
+        Some(args.presign_expires_in as i32),
+        Some(args.redirect_urls),
+        Some(api_key),
+        bearer_header,
+    )
+    .await
+    .map_err(|e| format!("OTIO export failed: {}", api_config::format_api_error(&e)))?;
+    Ok(Value::Object(otio.into_iter().collect()))
 }
 
 async fn write_otio(otio: &Value, partial: &Path) -> Result<(), String> {

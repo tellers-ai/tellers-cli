@@ -25,11 +25,30 @@ paths:
           title: Limit
       - name: page
         in: query
-        required: true
+        required: false
         schema:
-          type: integer
-          minimum: 0
+          anyOf:
+          - type: integer
+            minimum: 0
+          - type: 'null'
           title: Page
+      - name: offset
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+            minimum: 0
+          - type: 'null'
+          title: Offset
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
       - name: folder_on_top
         in: query
         required: false
@@ -45,6 +64,37 @@ paths:
           - type: string
           - type: 'null'
           title: Group Name
+      - name: sort_by
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - enum:
+            - modified_at
+            - added_at
+            type: string
+          - type: 'null'
+          title: Sort By
+      - name: sort_order
+        in: query
+        required: false
+        schema:
+          enum:
+          - asc
+          - desc
+          type: string
+          default: desc
+          title: Sort Order
+      - name: filetype
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: array
+            items:
+              $ref: '#/components/schemas/FileType'
+          - type: 'null'
+          title: Filetype
       - name: x-api-key
         in: header
         required: false
@@ -67,11 +117,7 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/FileReference'
-                title: Response Request Files Processing Users Sources List Files
-                  Get
+                $ref: '#/components/schemas/ListFilesResponse'
         '422':
           description: Validation Error
           content:
@@ -198,16 +244,43 @@ paths:
       tags:
       - accepts-api-key
       summary: Delete Current User
-      description: "Delete the authenticated user's own account, everywhere it exists.\n\
-        \nRuns the same purge as ``POST /admin/delete_account`` \u2014 Stripe\nsubscriptions,\
-        \ assets, projects, chats, solely-owned groups, the SQL row,\nthe S3 objects\
-        \ and (in production only) the Firebase account \u2014 and returns\na summary\
-        \ instead of a stream. Deleting a Firebase account that is already\ngone is\
-        \ not an error, so this is safe to call from a Firebase\n``auth.user().onDelete``\
-        \ trigger.\n\nIrreversible. The email keeps its signup-history row, so registering\
-        \ again\nwith the same address earns no second signup grant."
+      description: "Preview \u2014 or, with ``dry_run=false``, carry out \u2014 deleting\
+        \ your own account (SSE).\n\n**This previews by default.** ``dry_run`` is\
+        \ true unless you say otherwise,\nso a call that forgets the parameter reports\
+        \ what deleting the account\n*would* take and touches nothing. The ``done``\
+        \ event carries ``preview``\nwith the counts \u2014 assets, chats, assistants,\
+        \ groups, the Stripe\nsubscriptions that would be cancelled, whether the Firebase\
+        \ login would go\ntoo \u2014 for showing the user what they are about to lose.\n\
+        \nA caller that means it passes ``dry_run=false``. That runs the same purge\n\
+        as ``POST /admin/delete_account`` and streams the same events: the Stripe\n\
+        subscriptions, every asset the user created with its renditions and\nkeyframes,\
+        \ their chats, the assistants they authored and the media those\ncarry, the\
+        \ groups they solely own, the SQL row, the S3 objects and \u2014 in\nproduction\
+        \ only \u2014 the Firebase account.\n\n**A client that means to delete must\
+        \ check what it got.** Both modes answer\n200 and end in a ``done`` event;\
+        \ only ``dry_run`` and the counters\ndistinguish them. Reporting \"your account\
+        \ is deleted\" off the status code\nalone would be wrong for the default call,\
+        \ which deleted nothing.\n\nIt streams rather than answering once because\
+        \ a large account takes longer\nto delete than a load balancer will hold an\
+        \ idle connection open; the\nprogress events are what keep it open. A caller\
+        \ that disconnects does not\nstop the purge, and calling again finishes whatever\
+        \ was left.\n\nThe email keeps its signup-history row, so registering again\
+        \ with the same\naddress earns no second signup grant."
       operationId: delete_current_user_users_me_delete
       parameters:
+      - name: dry_run
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: 'Defaults to **true**: the call previews and deletes nothing.
+            Pass `dry_run=false` to actually delete the account. Check the `done`
+            event''s `dry_run` field to see which of the two you got.'
+          default: true
+          title: Dry Run
+        description: 'Defaults to **true**: the call previews and deletes nothing.
+          Pass `dry_run=false` to actually delete the account. Check the `done` event''s
+          `dry_run` field to see which of the two you got.'
       - name: x-api-key
         in: header
         required: false
@@ -226,10 +299,13 @@ paths:
           title: Authorization
       responses:
         '200':
-          description: Successful Response
+          description: "Server-sent events. `progress` events report each stage as\
+            \ it happens; the final `done` event is the object below \u2014 a summary\
+            \ of what was deleted, or, on a dry run, a `preview` of what would be."
           content:
-            application/json:
+            text/event-stream:
               schema:
+                type: string
                 $ref: '#/components/schemas/DeleteAccountSummary'
         '422':
           description: Validation Error
@@ -667,6 +743,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GenerateVideoResponse'
+        '402':
+          description: Not enough Tellers tokens to run this tool. The call was refused
+            before the tool ran, so nothing was charged. Buy more tokens or wait for
+            the next subscription grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolErrorBody'
+        '413':
+          description: The account is already using all the storage its plan allows,
+            and a generation would add another file. Nothing was charged and no provider
+            was called. Delete files or move to a plan with more storage; `GET /users/me`
+            reports both the usage and the quota.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolErrorBody'
         '422':
           description: Validation Error
           content:
@@ -709,6 +802,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GenerateImageResponse'
+        '402':
+          description: Not enough Tellers tokens to run this tool. The call was refused
+            before the tool ran, so nothing was charged. Buy more tokens or wait for
+            the next subscription grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolErrorBody'
+        '413':
+          description: The account is already using all the storage its plan allows,
+            and a generation would add another file. Nothing was charged and no provider
+            was called. Delete files or move to a plan with more storage; `GET /users/me`
+            reports both the usage and the quota.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolErrorBody'
         '422':
           description: Validation Error
           content:
@@ -751,6 +861,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GenerateAudioResponse'
+        '402':
+          description: Not enough Tellers tokens to run this tool. The call was refused
+            before the tool ran, so nothing was charged. Buy more tokens or wait for
+            the next subscription grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolErrorBody'
+        '413':
+          description: The account is already using all the storage its plan allows,
+            and a generation would add another file. Nothing was charged and no provider
+            was called. Delete files or move to a plan with more storage; `GET /users/me`
+            reports both the usage and the quota.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolErrorBody'
         '422':
           description: Validation Error
           content:
@@ -793,6 +920,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GenerateTtsResponse'
+        '402':
+          description: Not enough Tellers tokens to run this tool. The call was refused
+            before the tool ran, so nothing was charged. Buy more tokens or wait for
+            the next subscription grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolErrorBody'
+        '413':
+          description: The account is already using all the storage its plan allows,
+            and a generation would add another file. Nothing was charged and no provider
+            was called. Delete files or move to a plan with more storage; `GET /users/me`
+            reports both the usage and the quota.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolErrorBody'
         '422':
           description: Validation Error
           content:
@@ -835,6 +979,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SearchStockResponse'
+        '402':
+          description: Not enough Tellers tokens to run this tool. The call was refused
+            before the tool ran, so nothing was charged. Buy more tokens or wait for
+            the next subscription grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolErrorBody'
         '422':
           description: Validation Error
           content:
@@ -877,6 +1029,64 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SearchAssetsResponse'
+        '402':
+          description: Not enough Tellers tokens to run this tool. The call was refused
+            before the tool ran, so nothing was charged. Buy more tokens or wait for
+            the next subscription grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolErrorBody'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /tools/search/custom-agents:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Search Custom Agents
+      operationId: search_custom_agents_tools_search_custom_agents_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchCustomAgentsRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchCustomAgentsResponse'
+        '402':
+          description: Not enough Tellers tokens to run this tool. The call was refused
+            before the tool ran, so nothing was charged. Buy more tokens or wait for
+            the next subscription grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolErrorBody'
         '422':
           description: Validation Error
           content:
@@ -919,6 +1129,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SearchVoicesResponse'
+        '402':
+          description: Not enough Tellers tokens to run this tool. The call was refused
+            before the tool ran, so nothing was charged. Buy more tokens or wait for
+            the next subscription grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolErrorBody'
         '422':
           description: Validation Error
           content:
@@ -930,24 +1148,28 @@ paths:
       tags:
       - accepts-api-key
       summary: Request Description
-      description: 'Run the description (Gemini analysis) task on an asset.
-
-
-        Requires WRITE access on the asset or admin. ``needs_downscale`` reports whether
-        a
-
-        player/Gemini-compatible video rendition is missing. When it is, we encode
-        a
-
-        compatible proxy first and chain the description task after it (the downscale''s
-
-        ``link`` callback), so Gemini only runs once a usable rendition exists. The
-        returned
-
-        ``task_id`` always tracks the description task, so callers poll the same id
-        in both
-
-        cases.'
+      description: "Run the description (Gemini analysis) task on an asset, or on\
+        \ a folder.\n\nRequires WRITE access on the asset or admin.\n\nFor a single\
+        \ asset, ``needs_downscale`` reports whether a player/Gemini-\ncompatible\
+        \ video rendition is missing. When it is, we encode a compatible\nproxy first\
+        \ and chain the description task after it (the downscale's\n``link`` callback),\
+        \ so Gemini only runs once a usable rendition exists. The\nreturned ``task_id``\
+        \ always tracks the description task, so callers poll the\nsame id in both\
+        \ cases.\n\nPointed at a folder, it queues a walk of that folder instead and\
+        \ returns as\nsoon as the walk is queued: ``task_id`` then tracks the fan-out,\
+        \ which\ndispatches one description task per asset \u2014 each exactly as\
+        \ it would be\ndispatched on its own, proxy encode included \u2014 and ``needs_downscale``\
+        \ is\nfalse, since which assets need one is only known once the walk runs.\
+        \ The\nfolder is walked recursively; assets the caller cannot write, and assets\n\
+        whose media is not uploaded, are skipped. There is no limit on its size, and\n\
+        every dispatched asset is billed \u2014 the preflight route reports how many\
+        \ that\nwill be before you commit to it.\n\nAn optional body forces the configuration\
+        \ to analyse under, so a one-off run\ndoes not need a tellers-config committed\
+        \ to the folder tree first. It\nreplaces what the tree resolves rather than\
+        \ merging over it. Every entity id\nin it is checked against the caller before\
+        \ anything is dispatched, and the\nwhole request is refused if one is not\
+        \ theirs. The same body on the preflight\nroute shows the resulting config\
+        \ first."
       operationId: request_description_video_description__source_file_id__post
       parameters:
       - name: source_file_id
@@ -955,6 +1177,7 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
           title: Source File Id
       - name: x-api-key
         in: header
@@ -972,6 +1195,14 @@ paths:
           - type: string
           - type: 'null'
           title: Authorization
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/AnalysisConfigOverrideRequest'
+              - type: 'null'
+              title: Body
       responses:
         '200':
           description: Successful Response
@@ -990,14 +1221,20 @@ paths:
       tags:
       - accepts-api-key
       summary: Request Transcript
-      description: 'Generate a transcript for a video/audio/master-clip asset through
-        the STT task.
-
-
-        Requires WRITE access on the asset or admin. Rejects asset types that cannot
-        be
-
-        transcribed with a 400. The task no-ops when a transcript was already generated.'
+      description: "Generate a transcript for an asset, or for every asset in a folder.\n\
+        \nRequires WRITE access on the asset or admin. The task no-ops when a\ntranscript\
+        \ was already generated.\n\nFor a single asset, rejects types that cannot\
+        \ be transcribed with a 400.\nPointed at a folder, it queues a walk of that\
+        \ folder instead and returns as\nsoon as the walk is queued: ``task_id`` then\
+        \ tracks the fan-out, which\ndispatches one transcript task per asset. Types\
+        \ that cannot be transcribed\nare skipped there rather than rejected \u2014\
+        \ a mixed folder is the normal case \u2014\nas are assets the caller cannot\
+        \ write and assets whose media is not\nuploaded. The preflight route reports\
+        \ how many assets a folder would\ndispatch before you commit to it.\n\nUnlike\
+        \ the description route this takes no config override: speech-to-text\nreads\
+        \ none of the tellers-config. One sent here is refused with a 400 rather\n\
+        than accepted and ignored, so a caller cannot believe a config applied to\
+        \ a\ntranscript when nothing read it."
       operationId: request_transcript_video_transcript__source_file_id__post
       parameters:
       - name: source_file_id
@@ -1005,6 +1242,7 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
           title: Source File Id
       - name: x-api-key
         in: header
@@ -1022,6 +1260,14 @@ paths:
           - type: string
           - type: 'null'
           title: Authorization
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/AnalysisConfigOverrideRequest'
+              - type: 'null'
+              title: Body
       responses:
         '200':
           description: Successful Response
@@ -1029,6 +1275,87 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GenerateTranscriptResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /video/analysis-preflight/{source_file_id}:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Analysis Preflight
+      description: "Report what analysing this asset would do, without dispatching\
+        \ anything.\n\nThe dry run for the two routes above, and it takes what they\
+        \ take: a file or\na folder. ``description_asset_count`` and ``transcript_asset_count``\
+        \ are how\nmany assets each would dispatch \u2014 0 or 1 for a file, the whole\
+        \ subtree for a\nfolder \u2014 counted through the very same path, permission,\
+        \ type and\nupload-status filters the walk uses, so the number is what will\
+        \ actually\nrun rather than an estimate.\n\n``config`` is the tellers-config\
+        \ the dispatched tasks will read, resolved at\nthis asset's own path. It is\
+        \ a complete ``TellersConfigFile`` \u2014 the same\nobject ``GET /asset/tellers-config/{asset_id}``\
+        \ returns \u2014 with the merged\nanalysis settings and entity ids in it rather\
+        \ than beside it, so reading\n``config.analysis`` gives what will actually\
+        \ apply. ``config_assets`` lists\nthe config files that contributed, nearest\
+        \ last.\n\nFor a folder the counts cover the whole subtree while ``config``\
+        \ is what a\nfile sitting directly in it resolves. ``overriding_config_assets``\
+        \ lists the\ntellers-configs nested deeper that make those two disagree: assets\
+        \ under one\nof those resolve it instead, so while this is non-empty the reported\
+        \ config\ndoes not describe everything counted. It is capped, and\n``overriding_config_assets_truncated``\
+        \ says when there were more.\n\nAn optional body forces a configuration, and\
+        \ ``config`` then reports what\nthat leaves in force \u2014 through ``apply_config_override``,\
+        \ the same function\nthe analysis itself applies it with, so what this shows\
+        \ is what would run.\nSince an override replaces the folder tree outright,\
+        \ this is also how to see\nwhat a given body drops: ``config_assets`` comes\
+        \ back empty, and any entity\nthe tree contributed is gone unless the body\
+        \ names it again. Its entity ids\nare validated exactly as the run routes\
+        \ validate them, which makes this the\nway to find out whether an override\
+        \ will be accepted without spending\nanything on it.\n\nIt is a POST because\
+        \ of that body, not because it changes anything: it\ndispatches nothing and\
+        \ bills nothing.\n\nRequires WRITE access, like the routes it previews: a\
+        \ folder's counts only\ninclude assets the caller can write, so the same call\
+        \ by two people can\nlegitimately return different numbers."
+      operationId: analysis_preflight_video_analysis_preflight__source_file_id__post
+      parameters:
+      - name: source_file_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Source File Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/AnalysisConfigOverrideRequest'
+              - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisPreflightResponse'
         '422':
           description: Validation Error
           content:
@@ -1049,6 +1376,7 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
           title: Asset Id
       - name: x-api-key
         in: header
@@ -1124,6 +1452,7 @@ paths:
         schema:
           anyOf:
           - type: string
+            format: uuid
           - type: 'null'
           title: Group Id
       - name: before
@@ -1337,6 +1666,7 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
           title: Description Id
       - name: x-api-key
         in: header
@@ -1383,6 +1713,7 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
           title: Asset Id
       - name: x-api-key
         in: header
@@ -1407,6 +1738,423 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DuplicateAssetResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /asset/{asset_id}/description:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Create Asset Scene Description
+      description: Add one timed scene description and generate its embeddings.
+      operationId: create_asset_scene_description_asset__asset_id__description_post
+      parameters:
+      - name: asset_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Asset Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetSceneDescriptionCreateRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetSceneDescriptionUpdateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /asset/{asset_id}/description/{description_id}:
+    patch:
+      tags:
+      - accepts-api-key
+      summary: Update Asset Scene Description
+      description: 'Change the text and/or timing of one scene description and regenerate
+
+        its embeddings.'
+      operationId: update_asset_scene_description_asset__asset_id__description__description_id__patch
+      parameters:
+      - name: asset_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Asset Id
+      - name: description_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Description Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetSceneDescriptionUpdateRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetSceneDescriptionUpdateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - accepts-api-key
+      summary: Delete Asset Scene Description
+      description: 'Remove one scene description and rebuild the asset''s aggregate
+
+        embeddings without it.'
+      operationId: delete_asset_scene_description_asset__asset_id__description__description_id__delete
+      parameters:
+      - name: asset_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Asset Id
+      - name: description_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Description Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetSceneDescriptionUpdateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /project/{project_id}/export_tellers_otio:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Export Tellers Otio
+      description: "Return project OTIO JSON with clip ``target_url``s set to presigned\
+        \ media URLs (\u22651h by default)."
+      operationId: export_tellers_otio_project__project_id__export_tellers_otio_get
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Project Id
+      - name: input_rendition
+        in: query
+        required: false
+        schema:
+          enum:
+          - 480p
+          - 720p
+          - 1080p
+          - original
+          - highest
+          - lowest
+          type: string
+          description: Rendition passed to presign selection (highest player-compatible
+            transcodes, etc.).
+          default: highest
+          title: Input Rendition
+        description: Rendition passed to presign selection (highest player-compatible
+          transcodes, etc.).
+      - name: presign_expires_in
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 604800
+          minimum: 3600
+          description: S3 presigned GET lifetime in seconds (minimum 1 hour).
+          default: 43200
+          title: Presign Expires In
+        description: S3 presigned GET lifetime in seconds (minimum 1 hour).
+      - name: use_redirect_urls
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: When true, write clip target_url as /asset/url/{asset_id} redirect
+            links instead of direct presigned URLs.
+          default: false
+          title: Use Redirect Urls
+        description: When true, write clip target_url as /asset/url/{asset_id} redirect
+          links instead of direct presigned URLs.
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Export Tellers Otio Project  Project Id  Export Tellers
+                  Otio Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /project/{project_id}/export/cost:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Estimate Export Cost
+      description: Estimate the token cost of rendering a project's timeline.
+      operationId: estimate_export_cost_project__project_id__export_cost_get
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Project Id
+      - name: rendition
+        in: query
+        required: true
+        schema:
+          enum:
+          - 480p
+          - 720p
+          - 1080p
+          - 4k
+          type: string
+          description: The rendition to estimate (for example, 1080p).
+          title: Rendition
+        description: The rendition to estimate (for example, 1080p).
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportCostEstimateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /project/{project_id}/export/preflight:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Export Preflight
+      description: "Check a project's source renditions before starting an export.\n\
+        \nAlways reports all four resolutions \u2014 480p, 720p, 1080p and 4k \u2014\
+        \ so the id\nis the only thing to pass. Each says whether every asset already\
+        \ has the\nrendition the render would read (``has_all_renditions``), which\
+        \ assets still\nneed one generated (``state`` ``needs_rendition`` or ``generating``,\
+        \ with the\n``suggested_min_dimension`` to downscale to), and whether the\
+        \ render would\npull a 2K-or-larger input (``uses_2k_input``) \u2014 the thing\
+        \ that makes an\nexport slow even when nothing is missing.\n\nNothing is queued:\
+        \ an asset reported as ``needs_rendition`` stays that way\nuntil a downscale\
+        \ is asked for. An export started regardless still renders \u2014\n``source_limited``\
+        \ assets are upscaled, and ``missing`` ones are left out of\nthe playlist\
+        \ entirely, so their clips come out empty."
+      operationId: export_preflight_project__project_id__export_preflight_get
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Project Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportPreflightResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /project/{project_id}/export/generate_missing_renditions:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Generate Missing Renditions
+      description: "Encode an export-compatible master for every clip that lacks one.\n\
+        \nCovers the clips ``GET /project/{project_id}/export/preflight`` counts in\n\
+        ``renditions_needed_for_optimum_export`` \u2014 those with no export-compatible\n\
+        rendition at their own resolution \u2014 dispatching one downscale each, at\
+        \ that\nresolution. It is the highest rendition the sources allow, so afterwards\n\
+        every export reads the best master there is rather than a small proxy.\n\n\
+        Assets with a downscale already running are left alone instead of being\n\
+        re-encoded, and an asset the caller cannot write to is skipped so its owner\n\
+        is not billed for an encode they did not ask for. Each encode is billed to\n\
+        the asset's owner as it runs, the same as ``POST /video/downscale/{id}``;\n\
+        the amount reported here is the preflight's estimate of it.\n\nAn asset holds\
+        \ one proxy rendition at a time, so a new master replaces the\nsmaller proxy\
+        \ that asset had."
+      operationId: generate_missing_renditions_project__project_id__export_generate_missing_renditions_post
+      parameters:
+      - name: project_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Project Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateMissingRenditionsResponse'
         '422':
           description: Validation Error
           content:
@@ -1440,6 +2188,7 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
           title: Project Id
       - name: x-api-key
         in: header
@@ -1513,59 +2262,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
-  /agent/tools/list:
-    get:
-      tags:
-      - accepts-api-key
-      summary: List Agent Tools
-      description: Return this user's visible agent tools, optionally filtered by
-        GenAI.
-      operationId: list_agent_tools_agent_tools_list_get
-      parameters:
-      - name: is_gen_ai
-        in: query
-        required: false
-        schema:
-          anyOf:
-          - type: boolean
-          - type: 'null'
-          description: Filter the catalog to GenAI tools (true) or non-GenAI tools
-            (false).
-          title: Is Gen Ai
-        description: Filter the catalog to GenAI tools (true) or non-GenAI tools (false).
-      - name: x-api-key
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: X-Api-Key
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
-      responses:
-        '200':
-          description: Successful Response
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  additionalProperties: true
-                title: Response List Agent Tools Agent Tools List Get
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
   /agent/response/{chat_id}:
     delete:
       tags:
@@ -1578,6 +2274,7 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
           title: Chat Id
       - name: x-api-key
         in: header
@@ -1633,6 +2330,7 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
           title: Chat Id
       - name: after
         in: query
@@ -1687,9 +2385,11 @@ paths:
       description: "Run the agent and stream its events as SSE.\n\nThe last event\
         \ of the stream is always ``tellers.stream.end``, whose\n``reason`` tells\
         \ the client why the turn ended (``completed``,\n``cancelled``, ``insufficient_tokens``,\
-        \ ``error``, ``interrupted``). A\nstream that closes *without* it was cut\
-        \ short by the network \u2014 reconnect\nwith ``GET /agent/response/{chat_id}``\
-        \ to pick the run back up."
+        \ ``budget_exceeded``, ``error``,\n``interrupted``). ``insufficient_tokens``\
+        \ means the account is out and\nneeds a top-up; ``budget_exceeded`` means\
+        \ the run spent the credit\nallocated to it, which buying tokens does not\
+        \ fix. A stream that closes\n*without* it was cut short by the network \u2014\
+        \ reconnect with\n``GET /agent/response/{chat_id}`` to pick the run back up."
       operationId: process_agent_message_agent_response_post
       parameters:
       - name: x-api-key
@@ -1901,6 +2601,7 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
           title: Chat Id
       - name: x-api-key
         in: header
@@ -1942,6 +2643,7 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
           title: Chat Id
       - name: cancel_running
         in: query
@@ -1970,6 +2672,93 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /agent/chat/{chat_id}/usage:
+    get:
+      tags:
+      - accepts-api-key
+      summary: Get Chat Usage
+      description: Return chat-token and per-tool token usage for a chat.
+      operationId: get_chat_usage_agent_chat__chat_id__usage_get
+      parameters:
+      - name: chat_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Chat Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatUsageResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /agent/chat/{chat_id}/read:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Mark Chat Read
+      description: 'Mark the chat read up to its newest message, for the caller only.
+
+
+        An admin impersonating the user is only looking, so nothing is recorded.'
+      operationId: mark_chat_read_agent_chat__chat_id__read_post
+      parameters:
+      - name: chat_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Chat Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /agent/chat/{chat_id}/rename:
     patch:
       tags:
@@ -1982,6 +2771,7 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
           title: Chat Id
       - name: name
         in: query
@@ -2022,6 +2812,12 @@ paths:
       tags:
       - accepts-api-key
       summary: Get Chat
+      description: 'The chat''s messages, newest first.
+
+
+        Fetching the newest page (no ``offset``, no ``before``) marks the chat read
+
+        up to the newest message returned, unless an admin is impersonating.'
       operationId: get_chat_agent_chat__chat_id__messages_get
       parameters:
       - name: chat_id
@@ -2029,6 +2825,7 @@ paths:
         required: true
         schema:
           type: string
+          format: uuid
           title: Chat Id
       - name: offset
         in: query
@@ -2125,9 +2922,26 @@ paths:
         in: query
         required: false
         schema:
+          enum:
+          - gpt-6-astra
+          - gpt-6.1-sol
+          - gpt-6-sol
+          - gpt-6-luna
+          - gpt-5.6-sol
+          - gpt-5.6-terra
+          - gpt-5.6-luna
+          - gpt-5.5-2026-04-23
+          - gpt-5.5-pro-2026-04-23
+          - gpt-5.4-pro-2026-03-05
+          - gpt-5.4
+          - gpt-5.4-mini
+          - gpt-5.3-codex
+          - gpt-5.2-2025-12-11
+          - gpt-5-mini-2025-08-07
+          - gpt-5-nano
           type: string
           description: The LLM model to use for the response.
-          default: gpt-5.4-2026-03-05
+          default: gpt-6-luna
           title: Llm Model
         description: The LLM model to use for the response.
       - name: parallel_tool_calls
@@ -2135,10 +2949,10 @@ paths:
         required: false
         schema:
           type: boolean
-          description: Whether to allow parallel tool calls.
-          default: false
+          description: Whether to allow parallel tool calls. Defaults to true.
+          default: true
           title: Parallel Tool Calls
-        description: Whether to allow parallel tool calls.
+        description: Whether to allow parallel tool calls. Defaults to true.
       - name: chat_id
         in: query
         required: false
@@ -2331,7 +3145,8 @@ components:
           - high
           title: Llm Verbosity
           description: Range of number of tokens that can be generated by the LLM,
-            higher values yield more verbose responses.
+            higher values yield more verbose responses. A value the chosen model does
+            not advertise in `available_llm_models` is ignored.
           default: low
         llm_reasoning_effort:
           anyOf:
@@ -2347,8 +3162,9 @@ components:
           - type: 'null'
           title: Llm Reasoning Effort
           description: 'Controls reasoning effort: higher values yield more precise
-            but slower responses.'
-          default: low
+            but slower responses. A value the chosen model does not advertise in `available_llm_models`
+            is ignored.'
+          default: high
         priority:
           anyOf:
           - type: string
@@ -2362,6 +3178,7 @@ components:
             ''default'' (standard), or ''high'' (premium/low-latency). Only levels
             in the chosen model''s `available_priorities` (see GET /) take effect;
             others fall back to ''default''.'
+          default: default
         context:
           anyOf:
           - $ref: '#/components/schemas/AppContext'
@@ -2370,6 +3187,10 @@ components:
         llm_model:
           type: string
           enum:
+          - gpt-6-astra
+          - gpt-6.1-sol
+          - gpt-6-sol
+          - gpt-6-luna
           - gpt-5.6-sol
           - gpt-5.6-terra
           - gpt-5.6-luna
@@ -2381,9 +3202,10 @@ components:
           - gpt-5.3-codex
           - gpt-5.2-2025-12-11
           - gpt-5-mini-2025-08-07
+          - gpt-5-nano
           title: Llm Model
           description: The model to use to generate the response.
-          default: gpt-5.6-terra
+          default: gpt-6-luna
         tools:
           items:
             type: string
@@ -2401,16 +3223,28 @@ components:
         parallel_tool_calls:
           type: boolean
           title: Parallel Tool Calls
-          description: Whether to allow parallel tool calls. If True, the tool calls
-            will be executed in parallel. If False, the tool calls will be executed
-            sequentially.
-          default: false
+          description: Whether to allow parallel tool calls. Defaults to true. If
+            True, the tool calls will be executed in parallel. If False, the tool
+            calls will be executed sequentially.
+          default: true
         compaction:
           type: boolean
           title: Compaction
           description: Whether to enable automatic context cleanup when the selected
             model supports it. This keeps long conversations manageable.
           default: true
+        prefer_compaction:
+          anyOf:
+          - type: integer
+            minimum: 20000.0
+          - type: 'null'
+          title: Prefer Compaction
+          description: 'Preferred input-token size to compact the conversation at,
+            when `compaction` is enabled and the model supports it. A preference,
+            not a guarantee: it is capped at the chosen model''s own threshold (`compaction_threshold`
+            in `available_llm_models`), which is also what is used when this is unset,
+            because past that point compaction is what keeps the request inside the
+            context window. Lower it to have long conversations compacted earlier.'
         override_llm_verbosity:
           anyOf:
           - type: string
@@ -2437,12 +3271,6 @@ components:
           title: Override Llm Reasoning Effort
           description: 'Override the reasoning effort of the LLM, controls reasoning
             effort: higher values yield more precise but slower responses.'
-        max_mode:
-          type: boolean
-          title: Max Mode
-          description: Whether to enable max mode. If True, the agent will use the
-            maximum number of tokens allowed by the model.
-          default: false
         tool_exposure:
           $ref: '#/components/schemas/ToolExposure'
           description: "How much of each tool the model is shown up front. 'flat_search'\
@@ -2456,6 +3284,13 @@ components:
             \ not call a tool you expect it to. Both deferring values fall back to\
             \ 'flat' on models without tool_search."
           default: flat_search
+        max_tellers_token:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Max Tellers Token
+          description: Maximum cumulative Tellers Token budget for the agent run.
         no_interaction:
           type: boolean
           title: No Interaction
@@ -2494,7 +3329,8 @@ components:
           - high
           title: Llm Verbosity
           description: Range of number of tokens that can be generated by the LLM,
-            higher values yield more verbose responses.
+            higher values yield more verbose responses. A value the chosen model does
+            not advertise in `available_llm_models` is ignored.
           default: low
         llm_reasoning_effort:
           anyOf:
@@ -2510,8 +3346,9 @@ components:
           - type: 'null'
           title: Llm Reasoning Effort
           description: 'Controls reasoning effort: higher values yield more precise
-            but slower responses.'
-          default: low
+            but slower responses. A value the chosen model does not advertise in `available_llm_models`
+            is ignored.'
+          default: high
         priority:
           anyOf:
           - type: string
@@ -2525,6 +3362,7 @@ components:
             ''default'' (standard), or ''high'' (premium/low-latency). Only levels
             in the chosen model''s `available_priorities` (see GET /) take effect;
             others fall back to ''default''.'
+          default: default
         context:
           anyOf:
           - $ref: '#/components/schemas/AppContext'
@@ -2533,6 +3371,10 @@ components:
         llm_model:
           type: string
           enum:
+          - gpt-6-astra
+          - gpt-6.1-sol
+          - gpt-6-sol
+          - gpt-6-luna
           - gpt-5.6-sol
           - gpt-5.6-terra
           - gpt-5.6-luna
@@ -2544,9 +3386,10 @@ components:
           - gpt-5.3-codex
           - gpt-5.2-2025-12-11
           - gpt-5-mini-2025-08-07
+          - gpt-5-nano
           title: Llm Model
           description: The model to use to generate the response.
-          default: gpt-5.6-terra
+          default: gpt-6-luna
         tools:
           items:
             type: string
@@ -2564,16 +3407,28 @@ components:
         parallel_tool_calls:
           type: boolean
           title: Parallel Tool Calls
-          description: Whether to allow parallel tool calls. If True, the tool calls
-            will be executed in parallel. If False, the tool calls will be executed
-            sequentially.
-          default: false
+          description: Whether to allow parallel tool calls. Defaults to true. If
+            True, the tool calls will be executed in parallel. If False, the tool
+            calls will be executed sequentially.
+          default: true
         compaction:
           type: boolean
           title: Compaction
           description: Whether to enable automatic context cleanup when the selected
             model supports it. This keeps long conversations manageable.
           default: true
+        prefer_compaction:
+          anyOf:
+          - type: integer
+            minimum: 20000.0
+          - type: 'null'
+          title: Prefer Compaction
+          description: 'Preferred input-token size to compact the conversation at,
+            when `compaction` is enabled and the model supports it. A preference,
+            not a guarantee: it is capped at the chosen model''s own threshold (`compaction_threshold`
+            in `available_llm_models`), which is also what is used when this is unset,
+            because past that point compaction is what keeps the request inside the
+            context window. Lower it to have long conversations compacted earlier.'
         override_llm_verbosity:
           anyOf:
           - type: string
@@ -2600,12 +3455,6 @@ components:
           title: Override Llm Reasoning Effort
           description: 'Override the reasoning effort of the LLM, controls reasoning
             effort: higher values yield more precise but slower responses.'
-        max_mode:
-          type: boolean
-          title: Max Mode
-          description: Whether to enable max mode. If True, the agent will use the
-            maximum number of tokens allowed by the model.
-          default: false
         tool_exposure:
           $ref: '#/components/schemas/ToolExposure'
           description: "How much of each tool the model is shown up front. 'flat_search'\
@@ -2619,11 +3468,99 @@ components:
             \ not call a tool you expect it to. Both deferring values fall back to\
             \ 'flat' on models without tool_search."
           default: flat_search
+        max_tellers_token:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Max Tellers Token
+          description: Maximum cumulative Tellers Token budget for the agent run.
       additionalProperties: false
       type: object
       required:
       - message
       title: AgentMessageRequestWithoutNoInteraction
+    AnalysisConfigAsset:
+      properties:
+        asset_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Asset Id
+        in_app_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: In App Path
+      type: object
+      required:
+      - asset_id
+      - in_app_path
+      title: AnalysisConfigAsset
+    AnalysisConfigOverrideRequest:
+      properties:
+        config:
+          $ref: '#/components/schemas/TellersConfigFile'
+          description: "The configuration to analyse under, as a config file's own\
+            \ contents \u2014 not the id of a stored one. It forces itself: it replaces\
+            \ whatever the folder tree resolves rather than merging over it, so nothing\
+            \ inherited survives, including entities the tree contributed. A field\
+            \ left unset falls back to your preferences and then the app defaults,\
+            \ exactly as an unset field in a stored config does \u2014 sending only\
+            \ a prompt asks for that prompt at default reasoning, not at some folder's\
+            \ reasoning. merge_strategy is not read here: it says how a stored config\
+            \ combines with its parent folders, and this one has no parents."
+      additionalProperties: false
+      type: object
+      required:
+      - config
+      title: AnalysisConfigOverrideRequest
+      description: A tellers-config supplied with the request instead of read from
+        a folder.
+    AnalysisPreflightResponse:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        in_app_path:
+          type: string
+          title: In App Path
+        is_folder:
+          type: boolean
+          title: Is Folder
+        description_asset_count:
+          type: integer
+          title: Description Asset Count
+        transcript_asset_count:
+          type: integer
+          title: Transcript Asset Count
+        config:
+          $ref: '#/components/schemas/TellersConfigFile'
+        config_assets:
+          items:
+            $ref: '#/components/schemas/AnalysisConfigAsset'
+          type: array
+          title: Config Assets
+        overriding_config_assets:
+          items:
+            $ref: '#/components/schemas/AnalysisConfigAsset'
+          type: array
+          title: Overriding Config Assets
+        overriding_config_assets_truncated:
+          type: boolean
+          title: Overriding Config Assets Truncated
+      type: object
+      required:
+      - asset_id
+      - in_app_path
+      - is_folder
+      - description_asset_count
+      - transcript_asset_count
+      - config
+      - config_assets
+      - overriding_config_assets
+      - overriding_config_assets_truncated
+      title: AnalysisPreflightResponse
     ApiUser:
       properties:
         firebase_uid:
@@ -2680,6 +3617,16 @@ components:
           type: integer
           title: Storage Quota Gb
           description: Total storage quota available to the user in GB.
+        storage_used_gb:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Storage Used Gb
+          description: Gigabytes this user's assets and their renditions occupy, counting
+            each stored object once and rounded to two decimals. The same unit as
+            ``storage_quota_gb``, so the pair reads directly as "3.4 of 5 GB". Null
+            when no total has been computed for the account yet. Read from a cache
+            refreshed hourly, so it can lag a worker that has just written a proxy.
         subscription:
           anyOf:
           - $ref: '#/components/schemas/ApiUserSubscription'
@@ -2838,6 +3785,11 @@ components:
             $ref: '#/components/schemas/SocialPublishingPlatformSetting'
           type: array
           title: Social Publishing Platforms
+        project_aspect_ratios:
+          items:
+            $ref: '#/components/schemas/AspectRatio'
+          type: array
+          title: Project Aspect Ratios
         available_agent_tools:
           items:
             additionalProperties: true
@@ -2856,15 +3808,39 @@ components:
             $ref: '#/components/schemas/TellersPreset'
           type: array
           title: Presets
+        default_preset:
+          type: string
+          title: Default Preset
+          description: 'Name of the preset in `presets` that a request with no LLM
+            settings runs under. Seed a fresh chat from this preset rather than hard-coding
+            a copy of its values: a copy is what drifts off the default when the preset
+            changes.'
+        parallel_tool_calls:
+          type: boolean
+          title: Parallel Tool Calls
       type: object
       required:
       - maintenance_mode
       - social_publishing_platforms
+      - project_aspect_ratios
       - available_agent_tools
       - available_llm_models
       - llm_model_tiers
       - presets
+      - default_preset
+      - parallel_tool_calls
       title: AppSettings
+    AspectRatio:
+      type: string
+      enum:
+      - '16_9'
+      - '9_16'
+      - '4_5'
+      - '1_1'
+      - '2_3'
+      - '1.91_1'
+      - '1.43_1'
+      title: AspectRatio
     AssetAnalysisSettings:
       properties:
         reasoning:
@@ -2978,6 +3954,7 @@ components:
           - original
           - highest
           - lowest
+          - thumbnail
           title: Quality
           default: 720p
         player_compatible:
@@ -3202,6 +4179,63 @@ components:
       - asset_id
       title: AssetPeriodRef
       description: "A time range within an asset \u2014 mirrors the tools' ``AssetPeriod``."
+    AssetSceneDescriptionCreateRequest:
+      properties:
+        start_time_ms:
+          type: integer
+          minimum: 0.0
+          title: Start Time Ms
+        end_time_ms:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: End Time Ms
+        description:
+          type: string
+          minLength: 1
+          title: Description
+      type: object
+      required:
+      - start_time_ms
+      - end_time_ms
+      - description
+      title: AssetSceneDescriptionCreateRequest
+    AssetSceneDescriptionUpdateRequest:
+      properties:
+        description:
+          anyOf:
+          - type: string
+            minLength: 1
+          - type: 'null'
+          title: Description
+        start_time_ms:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: Start Time Ms
+        end_time_ms:
+          anyOf:
+          - type: integer
+            exclusiveMinimum: 0.0
+          - type: 'null'
+          title: End Time Ms
+      type: object
+      title: AssetSceneDescriptionUpdateRequest
+      description: 'Partial update: provide at least one. An omitted bound keeps its
+        value.'
+    AssetSceneDescriptionUpdateResponse:
+      properties:
+        description_id:
+          type: string
+          title: Description Id
+        task_id:
+          type: string
+          title: Task Id
+      type: object
+      required:
+      - description_id
+      - task_id
+      title: AssetSceneDescriptionUpdateResponse
     AssetSearchResult:
       properties:
         asset_id:
@@ -3276,6 +4310,7 @@ components:
           title: Upload Id
         asset_id:
           type: string
+          format: uuid
           title: Asset Id
         presigned_put_url:
           anyOf:
@@ -3399,6 +4434,15 @@ components:
             - high
           type: array
           title: Available Priorities
+        pricing_level:
+          type: integer
+          enum:
+          - 1
+          - 2
+          - 3
+          - 4
+          - 5
+          title: Pricing Level
       type: object
       required:
       - name
@@ -3406,6 +4450,7 @@ components:
       - compatible_models
       - options
       - available_priorities
+      - pricing_level
       title: AvailableModel
     BillingCatalog:
       properties:
@@ -3707,6 +4752,23 @@ components:
         is_running:
           type: boolean
           title: Is Running
+        last_read_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Read At
+          description: The `created_at` of the newest message the caller has read
+            in this chat. Null when the caller has never read it; such a chat counts
+            as read.
+        is_unread:
+          type: boolean
+          title: Is Unread
+          description: Whether the agent has written a message newer than `last_read_at`.
+            The caller's own messages never make a chat unread. Reading the newest
+            page of `GET /chat/{chat_id}/messages` or calling `POST /chat/{chat_id}/read`
+            clears it.
+          default: false
       type: object
       required:
       - id
@@ -3765,6 +4827,57 @@ components:
         reasoning_effort:
           type: string
           title: Reasoning Effort
+        pricing_level:
+          type: integer
+          enum:
+          - 1
+          - 2
+          - 3
+          - 4
+          - 5
+          title: Pricing Level
+        llm_model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Llm Model
+        priority:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Priority
+        parallel_tool_calls:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Parallel Tool Calls
+        max_tellers_token:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Max Tellers Token
+        prefer_compaction:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Prefer Compaction
+          description: The preferred compaction threshold the message was sent with,
+            as `prefer_compaction` in the agent message request. Null when it was
+            sent without one -- the model's own threshold applied -- and on messages
+            written before the settings were recorded at all.
+        llm_settings:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Llm Settings
+          description: The LLM settings the message was sent with that have no field
+            of their own above -- `tool_exposure`, `compaction` and the like -- keyed
+            by their name in the agent message request. Restoring the composer means
+            the fields above plus this. It holds no value that is already a field,
+            so nothing here can disagree with them. Null on messages written before
+            the column existed, which ran under whatever these settings defaulted
+            to at the time.
         context:
           additionalProperties: true
           type: object
@@ -3780,9 +4893,136 @@ components:
       - enabled_tools
       - verbosity
       - reasoning_effort
+      - pricing_level
+      - llm_model
+      - priority
+      - parallel_tool_calls
+      - max_tellers_token
       - context
       - created_at
       title: ChatMessageUserResponse
+    ChatToolUsage:
+      properties:
+        tool_name:
+          type: string
+          title: Tool Name
+        calls:
+          type: integer
+          title: Calls
+        tokens_used:
+          type: number
+          title: Tokens Used
+      type: object
+      required:
+      - tool_name
+      - calls
+      - tokens_used
+      title: ChatToolUsage
+    ChatUsageBreakdown:
+      properties:
+        llm_calls:
+          type: integer
+          title: Llm Calls
+          default: 0
+        input_tokens_uncached:
+          type: integer
+          title: Input Tokens Uncached
+          default: 0
+        input_tokens_cached:
+          type: integer
+          title: Input Tokens Cached
+          default: 0
+        cache_write_tokens:
+          type: integer
+          title: Cache Write Tokens
+          default: 0
+        output_tokens:
+          type: integer
+          title: Output Tokens
+          default: 0
+        reasoning_tokens:
+          type: integer
+          title: Reasoning Tokens
+          default: 0
+        system_prompt_tokens:
+          type: integer
+          title: System Prompt Tokens
+          default: 0
+        assistant_prompt_tokens:
+          type: integer
+          title: Assistant Prompt Tokens
+          default: 0
+        project_state_tokens:
+          type: integer
+          title: Project State Tokens
+          default: 0
+        conversation_history_tokens:
+          type: integer
+          title: Conversation History Tokens
+          default: 0
+        user_message_tokens:
+          type: integer
+          title: User Message Tokens
+          default: 0
+        tool_result_tokens:
+          type: integer
+          title: Tool Result Tokens
+          default: 0
+        tool_schema_tokens:
+          type: integer
+          title: Tool Schema Tokens
+          default: 0
+        timeline_mutations:
+          type: integer
+          title: Timeline Mutations
+          default: 0
+        llm_calls_per_timeline_mutation:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Llm Calls Per Timeline Mutation
+        complete:
+          type: boolean
+          title: Complete
+          default: true
+      type: object
+      title: ChatUsageBreakdown
+      description: "Where a chat's tokens went, as raw model tokens rather than charges.\n\
+        \nThe first four counts come from OpenAI; the ``*_tokens`` counts below them\n\
+        are our own tiktoken measurements of the parts we compose the prompt from,\n\
+        which is the only way to attribute a cost to tool schemas, project state or\n\
+        replayed history \u2014 the API reports the input as one number.\n\n``complete``\
+        \ is false when the chat contains calls made before these counts\nwere recorded.\
+        \ The numbers are then a floor for the chat, not its total."
+    ChatUsageResponse:
+      properties:
+        chat_id:
+          type: string
+          title: Chat Id
+        chat_tokens_used:
+          type: number
+          title: Chat Tokens Used
+        tools_tokens_used:
+          type: number
+          title: Tools Tokens Used
+        total_tokens_used:
+          type: number
+          title: Total Tokens Used
+        tools:
+          items:
+            $ref: '#/components/schemas/ChatToolUsage'
+          type: array
+          title: Tools
+        breakdown:
+          $ref: '#/components/schemas/ChatUsageBreakdown'
+      type: object
+      required:
+      - chat_id
+      - chat_tokens_used
+      - tools_tokens_used
+      - total_tokens_used
+      - tools
+      title: ChatUsageResponse
     CompleteTaskResponse:
       properties:
         status:
@@ -3834,6 +5074,7 @@ components:
         parent_asset_id:
           anyOf:
           - type: string
+            format: uuid
           - type: 'null'
           title: Parent Asset Id
         name:
@@ -3858,12 +5099,111 @@ components:
       - id
       - path
       title: CreateFolderResponse
+    DeleteAccountPreview:
+      properties:
+        email:
+          type: string
+          title: Email
+        firebase_uid:
+          type: string
+          title: Firebase Uid
+        assets:
+          type: integer
+          title: Assets
+          description: "Every asset, project and folder this user created \u2014 wherever\
+            \ it lives \u2014 with its renditions, keyframes and S3 objects"
+        assets_kept_not_created_by_user:
+          type: integer
+          title: Assets Kept Not Created By User
+          description: 'Assets somebody else created that sit in the groups being
+            deleted: untouched, but about to lose their last group mapping'
+        chats:
+          type: integer
+          title: Chats
+          description: Chats this user created. Chats older than `ta_chat.fk_created_by`
+            record no author and are not counted, nor deleted
+        agents:
+          type: integer
+          title: Agents
+          description: Assistants this user authored that would be deleted, published
+            copies included, with their logo and demo media
+        groups:
+          type: integer
+          title: Groups
+          description: 'Groups that would be deleted: the user''s default group plus
+            any group they are the sole member of. Groups shared with somebody else
+            are never counted, and never deleted.'
+        upload_post_profile:
+          type: boolean
+          title: Upload Post Profile
+          description: True if a linked upload-post profile would be deleted
+        stripe_customer_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stripe Customer Id
+          description: The Stripe customer that would keep its invoices; null when
+            the user has none
+        stripe_subscriptions:
+          items:
+            type: string
+          type: array
+          title: Stripe Subscriptions
+          description: Ids of the still-billing subscriptions that would be cancelled
+        stripe_error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Stripe Error
+          description: Why the subscriptions could not be listed; when set, stripe_subscriptions
+            is incomplete rather than empty
+        firebase_account_deleted:
+          type: boolean
+          title: Firebase Account Deleted
+          description: True if the Firebase login would be deleted too
+        firebase_skip_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Firebase Skip Reason
+          description: Why the Firebase account would be left alone
+        signup_grant_lost_on_recreate:
+          type: boolean
+          title: Signup Grant Lost On Recreate
+          description: 'True if this email already received the free signup grant:
+            the signup history outlives the account, so registering again with the
+            same address would earn no second grant'
+      type: object
+      required:
+      - email
+      - firebase_uid
+      - assets
+      - assets_kept_not_created_by_user
+      - chats
+      - agents
+      - groups
+      - upload_post_profile
+      - firebase_account_deleted
+      - signup_grant_lost_on_recreate
+      title: DeleteAccountPreview
+      description: 'What a real delete *would* remove, as counted by a dry run.
+
+
+        Only populated on a dry run: once the purge actually runs, the same
+
+        information is in the ``*_deleted`` counters of the summary itself.'
     DeleteAccountSummary:
       properties:
         dry_run:
           type: boolean
           title: Dry Run
           default: false
+        preview:
+          anyOf:
+          - $ref: '#/components/schemas/DeleteAccountPreview'
+          - type: 'null'
+          description: What would have been deleted; set only on a dry run, where
+            every counter below stays 0 because nothing was touched
         assets_deleted:
           type: integer
           title: Assets Deleted
@@ -3872,6 +5212,17 @@ components:
           type: integer
           title: Chats Deleted
           default: 0
+        agents_deleted:
+          type: integer
+          title: Agents Deleted
+          default: 0
+        assistant_media_handed_over:
+          type: integer
+          title: Assistant Media Handed Over
+          description: Assistant logos/demos this user uploaded that serve somebody
+            else's assistant, re-authored to that assistant's owner instead of being
+            deleted with the account
+          default: 0
         groups_deleted:
           type: integer
           title: Groups Deleted
@@ -3879,6 +5230,10 @@ components:
         s3_objects_deleted:
           type: integer
           title: S3 Objects Deleted
+          default: 0
+        s3_multipart_uploads_aborted:
+          type: integer
+          title: S3 Multipart Uploads Aborted
           default: 0
         stripe_subscriptions_cancelled:
           type: integer
@@ -3985,6 +5340,134 @@ components:
       - voice_id
       - name
       title: ElevenLabsVoice
+    ExportAssetRenditionStatus:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+        file_type:
+          anyOf:
+          - $ref: '#/components/schemas/FileType'
+          - type: 'null'
+        state:
+          type: string
+          enum:
+          - ready
+          - needs_rendition
+          - generating
+          - source_limited
+          - missing
+          - not_applicable
+          title: State
+        selected_width:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Selected Width
+        selected_height:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Selected Height
+        selected_is_original:
+          type: boolean
+          title: Selected Is Original
+          default: false
+        uses_2k_input:
+          type: boolean
+          title: Uses 2K Input
+          default: false
+        suggested_min_dimension:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Suggested Min Dimension
+        estimated_cost_tellers_tokens:
+          type: number
+          title: Estimated Cost Tellers Tokens
+          default: 0.0
+      type: object
+      required:
+      - asset_id
+      - state
+      title: ExportAssetRenditionStatus
+      description: What one project asset would contribute to one export rendition.
+    ExportCostEstimateResponse:
+      properties:
+        rendition:
+          type: string
+          enum:
+          - 480p
+          - 720p
+          - 1080p
+          - 4k
+          title: Rendition
+        duration_seconds:
+          type: number
+          title: Duration Seconds
+        estimated_cost_tellers_tokens:
+          type: number
+          title: Estimated Cost Tellers Tokens
+        detail_duration:
+          type: number
+          title: Detail Duration
+        total_estimate_duration:
+          type: number
+          title: Total Estimate Duration
+        duration_exported_file:
+          type: number
+          title: Duration Exported File
+        duration_rendering_file:
+          items:
+            $ref: '#/components/schemas/ExportRenderingDurationResponse'
+          type: array
+          title: Duration Rendering File
+      type: object
+      required:
+      - rendition
+      - duration_seconds
+      - estimated_cost_tellers_tokens
+      - detail_duration
+      - total_estimate_duration
+      - duration_exported_file
+      - duration_rendering_file
+      title: ExportCostEstimateResponse
+    ExportPreflightResponse:
+      properties:
+        project_id:
+          type: string
+          title: Project Id
+        duration_seconds:
+          type: number
+          title: Duration Seconds
+        asset_count:
+          type: integer
+          title: Asset Count
+        renditions:
+          items:
+            $ref: '#/components/schemas/ExportRenditionPreflight'
+          type: array
+          title: Renditions
+        renditions_needed_for_optimum_export:
+          type: integer
+          title: Renditions Needed For Optimum Export
+        estimated_rendition_cost_tellers_tokens:
+          type: number
+          title: Estimated Rendition Cost Tellers Tokens
+      type: object
+      required:
+      - project_id
+      - duration_seconds
+      - asset_count
+      - renditions
+      - renditions_needed_for_optimum_export
+      - estimated_rendition_cost_tellers_tokens
+      title: ExportPreflightResponse
     ExportProjectResponse:
       properties:
         task_id:
@@ -4000,6 +5483,74 @@ components:
       title: ExportProjectResponse
       description: 'Response for POST /project/{project_id}/export: task_id and the
         new export asset_id.'
+    ExportRenderingDurationResponse:
+      properties:
+        asset_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Asset Id
+        estimated_time:
+          type: number
+          title: Estimated Time
+      type: object
+      required:
+      - asset_id
+      - estimated_time
+      title: ExportRenderingDurationResponse
+    ExportRenditionPreflight:
+      properties:
+        rendition:
+          type: string
+          enum:
+          - 480p
+          - 720p
+          - 1080p
+          - 4k
+          title: Rendition
+        min_dimension:
+          type: integer
+          title: Min Dimension
+        has_all_renditions:
+          type: boolean
+          title: Has All Renditions
+        uses_2k_input:
+          type: boolean
+          title: Uses 2K Input
+        needs_rendition_count:
+          type: integer
+          title: Needs Rendition Count
+        generating_count:
+          type: integer
+          title: Generating Count
+        source_limited_count:
+          type: integer
+          title: Source Limited Count
+        missing_count:
+          type: integer
+          title: Missing Count
+        estimated_rendition_cost_tellers_tokens:
+          type: number
+          title: Estimated Rendition Cost Tellers Tokens
+        assets:
+          items:
+            $ref: '#/components/schemas/ExportAssetRenditionStatus'
+          type: array
+          title: Assets
+      type: object
+      required:
+      - rendition
+      - min_dimension
+      - has_all_renditions
+      - uses_2k_input
+      - needs_rendition_count
+      - generating_count
+      - source_limited_count
+      - missing_count
+      - estimated_rendition_cost_tellers_tokens
+      - assets
+      title: ExportRenditionPreflight
+      description: Preflight verdict for one export resolution.
     FailedTaskResponse:
       properties:
         status:
@@ -4055,6 +5606,8 @@ components:
       - video
       - audio
       - image
+      - text
+      - pdf
       - placeholder
       - group_clip
       - master_clip
@@ -4091,6 +5644,12 @@ components:
           - type: 'null'
           title: Output Path
           description: Optional library path for the generated audio file.
+        reference_audio:
+          anyOf:
+          - $ref: '#/components/schemas/AssetPeriodRef'
+          - type: 'null'
+          description: Optional audio range to use for ElevenLabs music inpainting.
+            Only supported when model='music'.
       additionalProperties: false
       type: object
       required:
@@ -4135,9 +5694,14 @@ components:
           - p-image
           - ideogram
           - gpt-image
+          - gpt-image-2.5-sunburst
+          - gpt-image-2.5-flare
+          - gpt-image-2
           - banana
           - banana-pro
           - banana-flash
+          - seedream
+          - seedream-pro
           title: Model
           description: Model to use.
           default: p-image
@@ -4163,12 +5727,29 @@ components:
             enum:
             - '512'
             - 1k
+            - 1.5k
             - 2k
             - 4k
           - type: 'null'
           title: Resolution
           description: Output resolution. Used by gpt-image (maps to pixel dimensions)
             and banana models (512 / 1k / 2k / 4k). Ignored by p-image.
+        width:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Width
+          description: Custom output width in pixels for Seedream. Must be supplied
+            together with height.
+        height:
+          anyOf:
+          - type: integer
+            minimum: 1.0
+          - type: 'null'
+          title: Height
+          description: Custom output height in pixels for Seedream. Must be supplied
+            together with width.
         input_frame:
           anyOf:
           - type: string
@@ -4193,6 +5774,64 @@ components:
       required:
       - asset_id
       title: GenerateImageResponse
+    GenerateMissingRenditionResult:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        min_dimension:
+          type: integer
+          title: Min Dimension
+        status:
+          type: string
+          enum:
+          - queued
+          - already_running
+          - not_allowed
+          title: Status
+        task_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Task Id
+        estimated_cost_tellers_tokens:
+          type: number
+          title: Estimated Cost Tellers Tokens
+          default: 0.0
+      type: object
+      required:
+      - asset_id
+      - min_dimension
+      - status
+      title: GenerateMissingRenditionResult
+      description: What happened to one asset when its export master was requested.
+    GenerateMissingRenditionsResponse:
+      properties:
+        project_id:
+          type: string
+          title: Project Id
+        queued_count:
+          type: integer
+          title: Queued Count
+        skipped_count:
+          type: integer
+          title: Skipped Count
+        estimated_cost_tellers_tokens:
+          type: number
+          title: Estimated Cost Tellers Tokens
+        assets:
+          items:
+            $ref: '#/components/schemas/GenerateMissingRenditionResult'
+          type: array
+          title: Assets
+      type: object
+      required:
+      - project_id
+      - queued_count
+      - skipped_count
+      - estimated_cost_tellers_tokens
+      - assets
+      title: GenerateMissingRenditionsResponse
     GenerateTranscriptResponse:
       properties:
         task_id:
@@ -4218,8 +5857,10 @@ components:
         model:
           type: string
           enum:
-          - elevenlabs-v2
           - elevenlabs-v3
+          - elevenlabs-v4
+          - elevenlabs-v4-turbo
+          - gemini-3.1-flash-tts
           title: Model
           description: Model to use.
           default: elevenlabs-v3
@@ -4263,6 +5904,7 @@ components:
           type: string
           enum:
           - p-video
+          - p-video-2
           - kling
           - kling-pro
           - veo
@@ -4272,6 +5914,7 @@ components:
           - wan
           - ltx
           - seedance
+          - minimax-h3-max
           title: Model
           description: Model to use.
           default: p-video
@@ -4292,12 +5935,13 @@ components:
             enum:
             - 480p
             - 720p
+            - 768p
             - 1080p
           - type: 'null'
           title: Resolution
           description: 'Output resolution. Supported values vary by model: p-video/veo
-            support 720p/1080p; wan/seedance support 480p/720p; kling/sora/runway
-            ignore this field.'
+            support 720p/1080p; wan/seedance support 480p/720p; minimax-h3-max supports
+            480p/768p; kling/sora/runway ignore this field.'
         input_frame:
           anyOf:
           - type: string
@@ -4427,12 +6071,32 @@ components:
         An empty list means the field is ignored \u2014 gpt-image derives its dimensions\n\
         from ``resolution`` and pays no attention to ``format``, while p-image is\n\
         the reverse."
+    ListFilesResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/FileReference'
+          type: array
+          title: Items
+        next_cursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Cursor
+      type: object
+      required:
+      - items
+      title: ListFilesResponse
     LlmModelTier:
       properties:
         low:
           anyOf:
           - type: string
             enum:
+            - gpt-6-astra
+            - gpt-6.1-sol
+            - gpt-6-sol
+            - gpt-6-luna
             - gpt-5.6-sol
             - gpt-5.6-terra
             - gpt-5.6-luna
@@ -4444,12 +6108,17 @@ components:
             - gpt-5.3-codex
             - gpt-5.2-2025-12-11
             - gpt-5-mini-2025-08-07
+            - gpt-5-nano
           - type: 'null'
           title: Low
         medium:
           anyOf:
           - type: string
             enum:
+            - gpt-6-astra
+            - gpt-6.1-sol
+            - gpt-6-sol
+            - gpt-6-luna
             - gpt-5.6-sol
             - gpt-5.6-terra
             - gpt-5.6-luna
@@ -4461,12 +6130,17 @@ components:
             - gpt-5.3-codex
             - gpt-5.2-2025-12-11
             - gpt-5-mini-2025-08-07
+            - gpt-5-nano
           - type: 'null'
           title: Medium
         high:
           anyOf:
           - type: string
             enum:
+            - gpt-6-astra
+            - gpt-6.1-sol
+            - gpt-6-sol
+            - gpt-6-luna
             - gpt-5.6-sol
             - gpt-5.6-terra
             - gpt-5.6-luna
@@ -4478,6 +6152,7 @@ components:
             - gpt-5.3-codex
             - gpt-5.2-2025-12-11
             - gpt-5-mini-2025-08-07
+            - gpt-5-nano
           - type: 'null'
           title: High
       type: object
@@ -4627,6 +6302,27 @@ components:
       - assets
       - version
       title: ProcessAssetsRequest
+    PublishedCustomAgentSearchResult:
+      properties:
+        name:
+          type: string
+          title: Name
+          description: The published custom agent name.
+        description:
+          type: string
+          title: Description
+          description: The published custom agent description.
+        app_url:
+          type: string
+          title: App Url
+          description: Tellers app link for opening this custom agent.
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      - description
+      - app_url
+      title: PublishedCustomAgentSearchResult
     RequestTaskResponse:
       properties:
         task_id:
@@ -4650,21 +6346,31 @@ components:
         search_mode:
           type: string
           enum:
-          - by_scene_keyframe
-          - by_scene_description
-          - by_scene_sequence
+          - semantic_by_scene_keyframe
+          - semantic_by_scene_description
+          - semantic_by_scene_sequence
+          - semantic_by_asset_description
+          - text_by_filename
+          - text_by_file_description
           title: Search Mode
-          description: Semantic search mode (embedding-based, not keyword matching).
-            by_scene_keyframe matches on keyframe embeddings, by_scene_description
-            on single-scene description embeddings, and by_scene_sequence on aggregate
-            consecutive-scene embeddings.
-          default: by_scene_keyframe
+          description: Search mode. Semantic modes are embedding-based, not keyword
+            matching. semantic_by_scene_keyframe matches on keyframe embeddings, semantic_by_scene_description
+            on single-scene description embeddings, and semantic_by_scene_sequence
+            on aggregate consecutive-scene embeddings. text_by_filename searches filenames
+            by case-insensitive substring, and text_by_file_description searches asset
+            descriptions by case-insensitive substring.
+          default: semantic_by_scene_keyframe
         folder:
           anyOf:
           - type: string
           - type: 'null'
           title: Folder
           description: Folder path to restrict the search to (e.g. '/my-project').
+        file_type:
+          anyOf:
+          - $ref: '#/components/schemas/FileType'
+          - type: 'null'
+          description: Restrict results to a specific asset file type.
         format:
           anyOf:
           - type: string
@@ -4674,6 +6380,12 @@ components:
           - type: 'null'
           title: Format
           description: Filter by aspect ratio.
+        only_my_files:
+          type: boolean
+          title: Only My Files
+          description: Search only your own library, leaving out files in groups shared
+            with you and public ones.
+          default: false
         limit:
           type: integer
           maximum: 50.0
@@ -4681,6 +6393,12 @@ components:
           title: Limit
           description: Number of results.
           default: 10
+        cursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
+          description: Opaque cursor returned by a previous page.
       additionalProperties: false
       type: object
       required:
@@ -4693,11 +6411,68 @@ components:
             $ref: '#/components/schemas/AssetSearchResult'
           type: array
           title: Results
+        next_cursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Cursor
       additionalProperties: false
       type: object
       required:
       - results
       title: SearchAssetsResponse
+    SearchCustomAgentsRequest:
+      properties:
+        query:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Query
+        limit:
+          type: integer
+          maximum: 50.0
+          minimum: 1.0
+          title: Limit
+          default: 20
+        recommended_by_tellers:
+          type: boolean
+          title: Recommended By Tellers
+          description: Only agents recommended by Tellers.
+          default: false
+        created_by_tellers:
+          type: boolean
+          title: Created By Tellers
+          description: Only agents created by Tellers.
+          default: false
+        cursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
+          description: Opaque cursor from a previous page.
+      additionalProperties: false
+      type: object
+      required:
+      - query
+      title: SearchCustomAgentsRequest
+    SearchCustomAgentsResponse:
+      properties:
+        results:
+          items:
+            $ref: '#/components/schemas/PublishedCustomAgentSearchResult'
+          type: array
+          title: Results
+        next_cursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Cursor
+      additionalProperties: false
+      type: object
+      required:
+      - results
+      - next_cursor
+      title: SearchCustomAgentsResponse
     SearchMeCapability:
       properties:
         required:
@@ -4711,6 +6486,12 @@ components:
           type: array
           title: Search Modes
           description: Values accepted for `search_mode`.
+        file_types:
+          items:
+            type: string
+          type: array
+          title: File Types
+          description: Values accepted for `file_type`.
         formats:
           items:
             type: string
@@ -4732,6 +6513,7 @@ components:
       required:
       - required
       - search_modes
+      - file_types
       - formats
       - min_limit
       - max_limit
@@ -4989,6 +6771,11 @@ components:
           - type: string
           - type: 'null'
           title: Prompt Used To Create
+        parent_asset_start_time:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Parent Asset Start Time
         umid:
           anyOf:
           - type: string
@@ -5175,11 +6962,66 @@ components:
           type: boolean
           title: Compaction
           default: false
+        compaction_threshold:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Compaction Threshold
       type: object
       required:
       - verbosity
       - reasoning_effort
       title: TellersAvailableOptions
+    TellersConfigFile:
+      properties:
+        entity_to_use:
+          items:
+            type: string
+          type: array
+          title: Entity To Use
+          default: []
+        analysis:
+          anyOf:
+          - $ref: '#/components/schemas/AssetAnalysisSettings'
+          - type: 'null'
+        generate_stt_from_op_atom:
+          type: boolean
+          title: Generate Stt From Op Atom
+          default: false
+        generate_stt_from_master_clip:
+          type: boolean
+          title: Generate Stt From Master Clip
+          default: true
+        generate_stt_with_diarization:
+          type: boolean
+          title: Generate Stt With Diarization
+          description: 'Whether speech-to-text also splits the audio by speaker. On
+            by default: it costs no more than a plain transcription, so the transcript
+            carries a ''speakers'' timeline naming who talks over each stretch of
+            the media unless a config turns it off. The words themselves are unchanged
+            either way.'
+          default: true
+        generate_description_from_op_atom:
+          type: boolean
+          title: Generate Description From Op Atom
+          default: false
+        generate_description_from_master_clip:
+          type: boolean
+          title: Generate Description From Master Clip
+          default: true
+        merge_strategy:
+          type: string
+          enum:
+          - merge
+          - override
+          title: Merge Strategy
+          description: How this config combines with the configs of its parent folders.
+            'merge' inherits them and overrides field by field; 'override' ignores
+            them.
+          default: merge
+      additionalProperties: true
+      type: object
+      title: TellersConfigFile
     TellersPreset:
       properties:
         name:
@@ -5189,6 +7031,10 @@ components:
           anyOf:
           - type: string
             enum:
+            - gpt-6-astra
+            - gpt-6.1-sol
+            - gpt-6-sol
+            - gpt-6-luna
             - gpt-5.6-sol
             - gpt-5.6-terra
             - gpt-5.6-luna
@@ -5200,6 +7046,7 @@ components:
             - gpt-5.3-codex
             - gpt-5.2-2025-12-11
             - gpt-5-mini-2025-08-07
+            - gpt-5-nano
           - type: 'null'
           title: Model
         options:
@@ -5249,6 +7096,19 @@ components:
       - verbosity
       - priority
       title: TellersPresetOptions
+    ToolErrorBody:
+      properties:
+        detail:
+          type: string
+          title: Detail
+          description: Why the call was refused, in the tool's own words.
+      type: object
+      required:
+      - detail
+      title: ToolErrorBody
+      description: "What a refused tool call returns: FastAPI's ``detail`` envelope.\n\
+        \nThe message is the tool's own \u2014 ``_run_tool`` passes ``ToolError.message``\n\
+        straight through \u2014 so it already says which account limit was reached."
     ToolExposure:
       type: string
       enum:

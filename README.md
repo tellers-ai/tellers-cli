@@ -119,7 +119,7 @@ Use `--quality highest|lowest|original|480p|720p|1080p` to select a rendition. E
 
 ### Project OTIO Export Command
 
-Export a project timeline as OpenTimelineIO. Requires `tellers login` (or `TELLERS_AUTH_BEARER`); API keys are not accepted by this endpoint.
+Export a project timeline as OpenTimelineIO:
 
 ```bash
 # Timeline JSON; clips point at presigned media URLs
