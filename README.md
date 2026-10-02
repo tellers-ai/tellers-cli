@@ -117,6 +117,26 @@ tellers asset download <asset-id> --output /path/to/video.mp4
 
 Use `--quality highest|lowest|original|480p|720p|1080p` to select a rendition. Existing files are protected by default; pass `--force` to replace one.
 
+### Project OTIO Export Command
+
+Export a project timeline as OpenTimelineIO:
+
+```bash
+# Timeline JSON; clips point at presigned media URLs
+tellers project export-otio <project-id> --output timeline.otio
+
+# Self-contained bundle: timeline plus every referenced media file
+tellers project export-otio <project-id> --output timeline.otioz
+```
+
+- `--format otio|otioz` — Output format (inferred from the `--output` extension; defaults to `otio`)
+- `--rendition highest|lowest|original|480p|720p|1080p` — Media rendition referenced or bundled (default: `highest`)
+- `--presign-expires-in <SECONDS>` — Lifetime of presigned media URLs, 3600–604800 (default: 43200)
+- `--redirect-urls` — Use authenticated `/asset/url/{asset_id}` redirect links instead of presigned URLs (`otio` only)
+- `--force` — Replace an existing destination file
+
+An `.otioz` bundle follows the OpenTimelineIO layout (`version.txt`, `content.otio`, `media/`) with clip `target_url`s rewritten to `media/<asset-id>.<ext>`.
+
 ## Implementation Notes
 
 - Argument parsing via Clap 4.x. See `clap` docs: [docs.rs/clap](https://docs.rs/clap/latest/clap/)

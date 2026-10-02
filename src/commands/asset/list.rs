@@ -58,7 +58,12 @@ pub fn run(args: ListArgs) -> Result<(), String> {
                 &cfg,
                 &args.path,
                 limit,
-                page,
+                Some(page),
+                None,
+                None,
+                None,
+                None,
+                None,
                 None,
                 None,
                 Some(&api_key),
@@ -84,7 +89,7 @@ pub fn run(args: ListArgs) -> Result<(), String> {
                 m
             })?;
 
-            let mut filtered_files: Vec<&FileReference> = files.iter().collect();
+            let mut filtered_files: Vec<&FileReference> = files.items.iter().collect();
             if let Some(ref regex) = regex_pattern {
                 filtered_files.retain(|file| regex.is_match(&file.file_name));
             }
