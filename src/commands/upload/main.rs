@@ -1008,6 +1008,11 @@ fn build_single_upload_request(
         None,
         vec![],
     );
+    // An uploaded edit (.otio, .aaf, .edl, .xml) finds its media by this path: the file
+    // name, then the folders above it to break ties between same-named files.
+    let original_file_path = std::fs::canonicalize(&file_info.original_path)
+        .unwrap_or_else(|_| file_info.original_path.clone());
+    source_info.original_file_path = Some(Some(original_file_path.to_string_lossy().to_string()));
     if let Some(metadata) = umid {
         if let Some(umid_value) = metadata.material_package_umid {
             source_info.capture_device_umid = Some(Some(umid_value));
