@@ -1,21 +1,43 @@
 name: Release
 
+# Click "Run workflow" in the Actions tab (on main) to cut a release:
+#   tests → bump Cargo.toml + CHANGELOG.md → tag → build → GitHub release → Homebrew.
 on:
-  push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
   BINARY_NAME: tellers
 
 jobs:
-  # ── 1. Generate the API client on Linux (the Docker action only works there) ──
-  generate-api-client:
-    name: Generate API Client
+  # ── 1. Test, bump the version, write the changelog, tag ─────────────────────
+  prepare:
+    name: Test & prepare release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
     steps:
+      - name: Only release from main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Run this workflow on the main branch (got ${GITHUB_REF})."
+          exit 1
+
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need all tags and commits for the version and changelog
 
       - name: Generate API client
         uses: openapi-generators/openapitools-generator-action@v1
@@ -28,16 +50,81 @@ jobs:
             --additional-properties=packageName=tellers_api_client,packageVersion=0.1.0,library=reqwest,supportAsync=true,reqwestClient=true
             --skip-validate-spec --strict-spec=false
 
-      - name: Upload generated API client
+      - name: Patch generated API client
+        run: scripts/patch_generated_api.sh
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Compute next version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          LATEST=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          IFS=. read -r MAJOR MINOR PATCH <<< "${LATEST:-v0.0.0}"
+          MAJOR="${MAJOR#v}"
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+          VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "${LATEST:-none} → ${VERSION}"
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set version in Cargo.toml / Cargo.lock
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          # First `version =` in Cargo.toml is the [package] one.
+          sed -i "0,/^version = \".*\"/s//version = \"${VERSION#v}\"/" Cargo.toml
+          # The version line right after `name = "tellers"` in Cargo.lock.
+          sed -i "/^name = \"tellers\"$/{n;s/^version = \".*\"/version = \"${VERSION#v}\"/}" Cargo.lock
+          cargo build --locked   # fails if the lockfile edit was wrong
+          git diff
+
+      - name: Write changelog
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          scripts/release_notes.sh "$VERSION" > release-notes.md
+          cat release-notes.md
+          {
+            echo "# Changelog"
+            echo
+            cat release-notes.md
+            # Keep previous entries, minus the old title.
+            if [ -f CHANGELOG.md ]; then tail -n +2 CHANGELOG.md | sed '1{/^$/d}'; fi
+          } > CHANGELOG.new
+          mv CHANGELOG.new CHANGELOG.md
+
+      - name: Commit and tag
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock CHANGELOG.md
+          git commit -m "chore(release): ${VERSION}"
+          git tag -a "$VERSION" -m "$VERSION"
+          git push origin HEAD:main "$VERSION"
+
+      - name: Upload release notes and generated API client
         uses: actions/upload-artifact@v4
         with:
-          name: generated-api-client
-          path: generated/tellers_api_client
+          name: prepare
+          path: |
+            release-notes.md
+            generated/tellers_api_client
 
   # ── 2. Build release binaries for every target ──────────────────────────────
   build:
     name: Build — ${{ matrix.target }}
-    needs: generate-api-client
+    needs: prepare
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -61,12 +148,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.version }}
 
       - name: Download generated API client
         uses: actions/download-artifact@v4
         with:
-          name: generated-api-client
-          path: generated/tellers_api_client
+          name: prepare
+          path: .
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -80,17 +169,12 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked --target ${{ matrix.target }}
 
-      - name: Get version from tag
-        id: version
-        shell: bash
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-
       - name: Package binary (Unix)
         if: matrix.ext == 'tar.gz'
         shell: bash
         run: |
           BIN="target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}"
-          ARCHIVE="${{ env.BINARY_NAME }}-${{ steps.version.outputs.VERSION }}-${{ matrix.target }}.tar.gz"
+          ARCHIVE="${{ env.BINARY_NAME }}-${{ needs.prepare.outputs.version }}-${{ matrix.target }}.tar.gz"
           tar -czf "$ARCHIVE" -C "$(dirname "$BIN")" "$(basename "$BIN")"
           sha256sum "$ARCHIVE" | cut -d' ' -f1 > "$ARCHIVE.sha256"
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
@@ -100,7 +184,7 @@ jobs:
         shell: pwsh
         run: |
           $bin     = "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe"
-          $archive = "${{ env.BINARY_NAME }}-${{ steps.version.outputs.VERSION }}-${{ matrix.target }}.zip"
+          $archive = "${{ env.BINARY_NAME }}-${{ needs.prepare.outputs.version }}-${{ matrix.target }}.zip"
           Compress-Archive -Path $bin -DestinationPath $archive
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
           $hash | Out-File -FilePath "$archive.sha256" -NoNewline -Encoding ascii
@@ -115,16 +199,18 @@ jobs:
   # ── 3. Create the GitHub Release ────────────────────────────────────────────
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     outputs:
-      version: ${{ steps.version.outputs.VERSION }}
+      version: ${{ needs.prepare.outputs.version }}
     steps:
-      - name: Get version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+      - name: Download release notes
+        uses: actions/download-artifact@v4
+        with:
+          name: prepare
+          path: .
 
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
@@ -136,8 +222,10 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: ${{ needs.prepare.outputs.version }}
+          body_path: release-notes.md
           files: artifacts/**
-          generate_release_notes: true
 
   # ── 4. Push updated formula to the Homebrew tap ─────────────────────────────
   #
