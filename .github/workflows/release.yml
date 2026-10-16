@@ -35,7 +35,7 @@ jobs:
           echo "::error::Run this workflow on the main branch (got ${GITHUB_REF})."
           exit 1
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # need all tags and commits for the version and changelog
 
@@ -114,7 +114,7 @@ jobs:
           git push origin HEAD:main "$VERSION"
 
       - name: Upload release notes and generated API client
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: prepare
           path: |
@@ -147,12 +147,12 @@ jobs:
             ext: zip
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.prepare.outputs.version }}
 
       - name: Download generated API client
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: prepare
           path: .
@@ -191,7 +191,7 @@ jobs:
           echo "ARCHIVE=$archive" >> $env:GITHUB_ENV
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.target }}
           path: ${{ env.BINARY_NAME }}-*   # archives + .sha256 files
@@ -207,20 +207,20 @@ jobs:
       version: ${{ needs.prepare.outputs.version }}
     steps:
       - name: Download release notes
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: prepare
           path: .
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: release-*
           merge-multiple: true
           path: artifacts
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.prepare.outputs.version }}
           name: ${{ needs.prepare.outputs.version }}
@@ -243,7 +243,7 @@ jobs:
       VERSION: ${{ needs.release.outputs.version }}
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: release-*
           merge-multiple: true
