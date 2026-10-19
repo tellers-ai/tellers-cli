@@ -7,8 +7,7 @@ Tellers CLI to interact with `tellers.ai` from the terminal.
 ### Homebrew (macOS and Linux)
 
 ```bash
-brew tap tellers-ai/tellers
-brew install tellers
+brew install tellers-ai/tellers/tellers
 ```
 
 ### Build from source
