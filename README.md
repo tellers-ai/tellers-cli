@@ -104,7 +104,7 @@ tellers upload /path/to/media_folder
 - `--ext <EXT>` — Filter files by extension (e.g., `--ext mp4 --ext mov`)
 - `--in-app-path <PATH>` — Set the in-app path for uploaded files
 
-Files ≥ 10 MiB use **multipart S3 upload** (presigned part URLs, then complete); smaller files use a single presigned PUT.
+Files ≥ 100 MiB use a **multipart S3 upload**: the file is read and sent 50 MiB at a time, each part to a URL fetched just before it is sent (and fetched again for a retry), then the upload is completed. Smaller files use a single presigned PUT.
 
 ### Asset Download Command
 

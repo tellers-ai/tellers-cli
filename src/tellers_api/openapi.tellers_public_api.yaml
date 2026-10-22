@@ -400,6 +400,54 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /users/assets/multipart/part_urls:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Create Multipart Part Urls
+      description: 'Presign fresh part URLs for an in-flight multipart upload.
+
+
+        Called as the upload progresses, so a part is always sent with a URL minted
+
+        moments before, and a part rejected with 403 can be retried with a new one.'
+      operationId: create_multipart_part_urls_users_assets_multipart_part_urls_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MultipartPartUrlsRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MultipartPartUrlsResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /users/assets/multipart/abort:
     post:
       tags:
@@ -441,12 +489,81 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /users/assets/uploads:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Create Uploads
+      description: 'Start uploading assets.
+
+
+        A single-part asset gets its ``presigned_put_url``. A multipart asset gets
+
+        its ``multipart_upload_id``, part size and part count but no part URLs:
+
+        fetch each part''s URL from ``/assets/multipart/part_urls`` just before
+
+        sending that part, and a fresh one for a retry. Part URLs are signed with
+
+        temporary credentials, so one minted long before use can have expired.'
+      operationId: create_uploads_users_assets_uploads_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/AssetUploadRequest'
+              title: Assets
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AssetUploadResponse'
+                title: Response Create Uploads Users Assets Uploads Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /users/assets/upload_urls:
     post:
       tags:
       - accepts-api-key
       summary: Create Upload Urls
+      description: 'Deprecated: use ``/assets/uploads``.
+
+
+        Presigns every part of a multipart upload up front. Those URLs are signed
+
+        with temporary credentials and can expire before a large upload reaches
+
+        its last parts, which S3 then rejects with 403.'
       operationId: create_upload_urls_users_assets_upload_urls_post
+      deprecated: true
       parameters:
       - name: x-api-key
         in: header
@@ -1609,6 +1726,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /asset/file_urls:
+    post:
+      tags:
+      - accepts-api-key
+      summary: Get Asset File Url Batch Json
+      description: 'Return presigned URLs to the uploaded file of text, PDF and LUT
+        assets.
+
+
+        These types have no renditions, so there is no quality or player choice to
+
+        make. Any other type comes back as an error item pointing at
+
+        ``/asset/download_urls``.'
+      operationId: get_asset_file_url_batch_json_asset_file_urls_post
+      parameters:
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetFileUrlBatchRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetFileUrlBatchResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /asset/infos:
     post:
       tags:
@@ -1702,10 +1870,22 @@ paths:
       tags:
       - accepts-api-key
       summary: Duplicate Asset
-      description: 'Duplicate a project asset. Caller must have WRITE on the source.
+      description: 'Duplicate an asset into the caller''s library.
 
 
-        Non-project assets return 400. Missing asset or no write access returns 404.'
+        A project needs WRITE and is copied without its media: the copy''s timeline
+
+        uses the same assets. Any other file (media, stock footage, entity, config)
+
+        needs only READ and is copied in full, stored files and analysis included,
+
+        as ``name (1).ext`` next to the original when the caller can write to its
+
+        folder, at the library root otherwise. Folders, group clips, master clips
+
+        and assets still uploading return 400. A copy whose files would not fit the
+
+        caller''s storage returns 413. A missing or inaccessible asset returns 404.'
       operationId: duplicate_asset_asset__asset_id__duplicate_post
       parameters:
       - name: asset_id
@@ -1788,6 +1968,76 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AssetSceneDescriptionUpdateResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /asset/{asset_id}/content:
+    put:
+      tags:
+      - accepts-api-key
+      summary: Replace Asset Text Content
+      description: 'Replace or patch a text, Markdown or SVG file''s content and reprocess
+        it.
+
+
+        Send `content` to replace the whole body, or `diff` (a unified diff
+
+        against the file as stored) to change part of a long file without
+
+        resending it. Either way the file is written over in place, the way the
+
+        agent''s patch_file tool does, then preprocessing re-runs so the search
+
+        embeddings match the new text and an SVG''s thumbnail matches its new
+
+        markup. There is no size limit. The resulting SVG must be a well-formed
+
+        document with an <svg> root, or the call is refused with 400 and nothing
+
+        is written. A diff whose hunks do not match the stored file is refused
+
+        with 409; a diff that cannot be parsed with 400.'
+      operationId: replace_asset_text_content_asset__asset_id__content_put
+      parameters:
+      - name: asset_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Asset Id
+      - name: x-api-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Api-Key
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssetTextContentRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssetTextContentResponse'
         '422':
           description: Validation Error
           content:
@@ -1910,8 +2160,8 @@ paths:
       tags:
       - accepts-api-key
       summary: Export Tellers Otio
-      description: "Return project OTIO JSON with clip ``target_url``s set to presigned\
-        \ media URLs (\u22651h by default)."
+      description: "Return project OTIO JSON with clip ``target_url``s and LUT ``cube``\
+        \ URLs presigned (\u22651h by default)."
       operationId: export_tellers_otio_project__project_id__export_tellers_otio_get
       parameters:
       - name: project_id
@@ -3172,12 +3422,14 @@ components:
             - low
             - default
             - high
+            - ultra
           - type: 'null'
           title: Priority
           description: 'Priority level for the response: ''low'' (cheaper/slower),
-            ''default'' (standard), or ''high'' (premium/low-latency). Only levels
-            in the chosen model''s `available_priorities` (see GET /) take effect;
-            others fall back to ''default''.'
+            ''default'' (standard), ''high'' (premium/low-latency), or ''ultra'' (OpenAI
+            Ultrafast: several times faster output at about 3x the ''high'' price).
+            Only levels in the chosen model''s `available_priorities` (see GET /)
+            take effect; others fall back to ''default''.'
           default: default
         context:
           anyOf:
@@ -3356,12 +3608,14 @@ components:
             - low
             - default
             - high
+            - ultra
           - type: 'null'
           title: Priority
           description: 'Priority level for the response: ''low'' (cheaper/slower),
-            ''default'' (standard), or ''high'' (premium/low-latency). Only levels
-            in the chosen model''s `available_priorities` (see GET /) take effect;
-            others fall back to ''default''.'
+            ''default'' (standard), ''high'' (premium/low-latency), or ''ultra'' (OpenAI
+            Ultrafast: several times faster output at about 3x the ''high'' price).
+            Only levels in the chosen model''s `available_priorities` (see GET /)
+            take effect; others fall back to ''default''.'
           default: default
         context:
           anyOf:
@@ -3818,6 +4072,15 @@ components:
         parallel_tool_calls:
           type: boolean
           title: Parallel Tool Calls
+        disabled_effects:
+          items:
+            type: string
+          type: array
+          title: Disabled Effects
+          description: 'Timeline effects the user may not pick, as the agent may not
+            add them: an effect name (`Stabilize`) or one parameter of one (`Transform.follow`).
+            Leave them out of the effect pickers; one already on a clip or track still
+            shows and can be configured, disabled or deleted.'
       type: object
       required:
       - maintenance_mode
@@ -3829,6 +4092,7 @@ components:
       - presets
       - default_preset
       - parallel_tool_calls
+      - disabled_effects
       title: AppSettings
     AspectRatio:
       type: string
@@ -4016,6 +4280,80 @@ components:
       title: AssetDownloadUrlResponse
       description: Media URL and how long it should remain valid (for refresh / UrlSource
         lifecycle).
+    AssetFileUrlBatchItem:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        error:
+          type: boolean
+          title: Error
+        error_message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error Message
+        file:
+          anyOf:
+          - $ref: '#/components/schemas/AssetFileUrlResponse'
+          - type: 'null'
+      type: object
+      required:
+      - asset_id
+      - error
+      title: AssetFileUrlBatchItem
+    AssetFileUrlBatchRequest:
+      properties:
+        asset_ids:
+          items:
+            type: string
+          type: array
+          minItems: 1
+          title: Asset Ids
+          description: IDs of text, PDF or LUT assets to resolve.
+      type: object
+      required:
+      - asset_ids
+      title: AssetFileUrlBatchRequest
+    AssetFileUrlBatchResponse:
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/AssetFileUrlBatchItem'
+          type: array
+          title: Items
+      type: object
+      required:
+      - items
+      title: AssetFileUrlBatchResponse
+    AssetFileUrlResponse:
+      properties:
+        url:
+          type: string
+          title: Url
+        expired_in:
+          type: integer
+          title: Expired In
+          description: Seconds the presigned URL stays valid.
+        file_type:
+          $ref: '#/components/schemas/FileType'
+        mime_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mime Type
+        filename:
+          type: string
+          title: Filename
+          description: The asset's file name, for saving the download under.
+      type: object
+      required:
+      - url
+      - expired_in
+      - file_type
+      - filename
+      title: AssetFileUrlResponse
+      description: Presigned URL to an asset's uploaded file.
     AssetFrameRef:
       properties:
         asset_id:
@@ -4262,6 +4600,47 @@ components:
       - start_time_seconds
       - end_time_seconds
       title: AssetSearchResult
+    AssetTextContentRequest:
+      properties:
+        content:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Content
+          description: 'The file''s complete new text, UTF-8: the body of a text or
+            Markdown file, or the full markup of an SVG. Replaces the whole body.
+            Give this or `diff`, not both.'
+        diff:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Diff
+          description: 'A standard unified diff against the file as stored, the format
+            `git diff` prints: each hunk starts with its own ''@@ -start,count +start,count
+            @@'' line, then a leading space for context, ''-'' to remove, ''+'' to
+            add; the ''--- a/file'' and ''+++ b/file'' header lines are optional.
+            Hunks are placed by line number and their context must match the file
+            exactly, so read the file first. A hunk that does not match is refused
+            with 409 and the error says which line missed. For a long file this is
+            far smaller than resending the whole body. Give this or `content`, not
+            both.'
+      additionalProperties: false
+      type: object
+      title: AssetTextContentRequest
+      description: Exactly one of ``content`` or ``diff``.
+    AssetTextContentResponse:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        byte_size:
+          type: integer
+          title: Byte Size
+      type: object
+      required:
+      - asset_id
+      - byte_size
+      title: AssetTextContentResponse
     AssetUploadRequest:
       properties:
         content_length:
@@ -4432,6 +4811,7 @@ components:
             - low
             - default
             - high
+            - ultra
           type: array
           title: Available Priorities
         pricing_level:
@@ -5583,6 +5963,11 @@ components:
           - type: string
           - type: 'null'
           title: File Type
+        mime_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Mime Type
         duration_seconds:
           anyOf:
           - type: number
@@ -5608,6 +5993,7 @@ components:
       - image
       - text
       - pdf
+      - lut
       - placeholder
       - group_clip
       - master_clip
@@ -5636,7 +6022,7 @@ components:
           type: number
           title: Duration Seconds
           description: "Requested length. Accepted range differs per model \u2014\
-            \ music takes 10-300s and sfx 0.1-22s. See GET /tools/models."
+            \ music takes 10-300s and sfx 0.5-30s. See GET /tools/models."
           default: 30.0
         output_path:
           anyOf:
@@ -5725,7 +6111,6 @@ components:
           anyOf:
           - type: string
             enum:
-            - '512'
             - 1k
             - 1.5k
             - 2k
@@ -5733,7 +6118,7 @@ components:
           - type: 'null'
           title: Resolution
           description: Output resolution. Used by gpt-image (maps to pixel dimensions)
-            and banana models (512 / 1k / 2k / 4k). Ignored by p-image.
+            and banana models (1k / 2k / 4k). Ignored by p-image.
         width:
           anyOf:
           - type: integer
@@ -5908,8 +6293,6 @@ components:
           - kling
           - kling-pro
           - veo
-          - sora
-          - sora-pro
           - runway
           - wan
           - ltx
@@ -5941,7 +6324,7 @@ components:
           title: Resolution
           description: 'Output resolution. Supported values vary by model: p-video/veo
             support 720p/1080p; wan/seedance support 480p/720p; minimax-h3-max supports
-            480p/768p; kling/sora/runway ignore this field.'
+            480p/768p; kling/runway ignore this field.'
         input_frame:
           anyOf:
           - type: string
@@ -5968,6 +6351,14 @@ components:
           description: "Audio reference. An asset id for the whole asset, or an object\
             \ pinning `start_time` / `end_time`. Not every model accepts audio, and\
             \ only some accept a range \u2014 see GET /tools/models."
+        output_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Output Path
+          description: 'Where to save the video in the library: a file path (''Folder/name.mp4'')
+            or a folder ending with ''/'' (''Folder/''). Defaults to the model''s
+            own folder.'
       additionalProperties: false
       type: object
       required:
@@ -6202,6 +6593,55 @@ components:
       - multipart_upload_id
       - parts
       title: MultipartCompleteRequest
+    MultipartPartUrl:
+      properties:
+        part_number:
+          type: integer
+          title: Part Number
+        url:
+          type: string
+          title: Url
+      type: object
+      required:
+      - part_number
+      - url
+      title: MultipartPartUrl
+    MultipartPartUrlsRequest:
+      properties:
+        asset_id:
+          type: string
+          title: Asset Id
+        multipart_upload_id:
+          type: string
+          title: Multipart Upload Id
+        part_numbers:
+          items:
+            type: integer
+          type: array
+          maxItems: 100
+          minItems: 1
+          title: Part Numbers
+          description: '1-based part numbers to presign. Request them as the upload
+            progresses instead of relying on the URLs returned by upload_urls: those
+            are signed with temporary credentials, so they can expire long before
+            a large upload reaches its last parts.'
+      type: object
+      required:
+      - asset_id
+      - multipart_upload_id
+      - part_numbers
+      title: MultipartPartUrlsRequest
+    MultipartPartUrlsResponse:
+      properties:
+        urls:
+          items:
+            $ref: '#/components/schemas/MultipartPartUrl'
+          type: array
+          title: Urls
+      type: object
+      required:
+      - urls
+      title: MultipartPartUrlsResponse
     PendingTaskResponse:
       properties:
         status:
@@ -6865,6 +7305,18 @@ components:
           type: number
           title: Duration Seconds
           description: The duration of the asset in seconds. 0.0 for images.
+        width:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Width
+          description: The width of the asset in pixels, when Pexels reports it.
+        height:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Height
+          description: The height of the asset in pixels, when Pexels reports it.
       additionalProperties: false
       type: object
       required:
@@ -6872,6 +7324,8 @@ components:
       - title
       - description
       - duration_seconds
+      - width
+      - height
       title: StockAssetSearchResult
     TaskResponse:
       properties:
@@ -7088,6 +7542,7 @@ components:
             - low
             - default
             - high
+            - ultra
           - type: 'null'
           title: Priority
       type: object
@@ -7219,9 +7674,68 @@ components:
           anyOf:
           - $ref: '#/components/schemas/AssetAnalysisSettings'
           - type: 'null'
+        upload:
+          anyOf:
+          - $ref: '#/components/schemas/UserUploadPreferences'
+          - type: 'null'
+          description: 'Upload defaults: whether each uploaded file is transcribed
+            and described automatically.'
       additionalProperties: true
       type: object
       title: UserPreferences
+    UserUploadPreferences:
+      properties:
+        generate_stt_from_op_atom:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Generate Stt From Op Atom
+          description: Transcribe uploaded Avid OP-Atom MXF files. Applies when a
+            file is uploaded. Unset falls back to the app default; a tellers-config
+            file in the asset's folder tree that sets this field takes precedence.
+        generate_stt_from_master_clip:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Generate Stt From Master Clip
+          description: Transcribe uploaded media and master clips. Applies when a
+            file is uploaded. Unset falls back to the app default; a tellers-config
+            file in the asset's folder tree that sets this field takes precedence.
+        generate_stt_with_diarization:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Generate Stt With Diarization
+          description: Split upload transcripts by speaker. Applies when a file is
+            uploaded. Unset falls back to the app default; a tellers-config file in
+            the asset's folder tree that sets this field takes precedence.
+        generate_description_from_op_atom:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Generate Description From Op Atom
+          description: Generate a description for uploaded Avid OP-Atom MXF files.
+            Applies when a file is uploaded. Unset falls back to the app default;
+            a tellers-config file in the asset's folder tree that sets this field
+            takes precedence.
+        generate_description_from_master_clip:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Generate Description From Master Clip
+          description: Generate a description for uploaded media and master clips.
+            Applies when a file is uploaded. Unset falls back to the app default;
+            a tellers-config file in the asset's folder tree that sets this field
+            takes precedence.
+      additionalProperties: false
+      type: object
+      title: UserUploadPreferences
+      description: 'What runs automatically on every file the user uploads.
+
+
+        Same fields, same meaning as on ``TellersConfigFile``. Resolution order is
+
+        the folder''s tellers-config, then these, then the app default.'
     ValidationError:
       properties:
         loc:
