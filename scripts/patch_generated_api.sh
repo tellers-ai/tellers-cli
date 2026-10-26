@@ -15,3 +15,10 @@ fi
 if ! grep -q '^pub type AnyOfLessThanGreaterThan = serde_json::Value;' "${MODELS_RS}"; then
   printf '\npub type AnyOfLessThanGreaterThan = serde_json::Value;\n' >> "${MODELS_RS}"
 fi
+
+# The spec types content_length as a plain integer, which the generator maps to
+# i32: a file over 2 GiB could not even declare its size. Widen it to i64.
+UPLOAD_REQUEST_RS="${ROOT_DIR}/generated/tellers_api_client/src/models/asset_upload_request.rs"
+if [ -f "${UPLOAD_REQUEST_RS}" ]; then
+  perl -pi -e 's/\bcontent_length: i32\b/content_length: i64/g' "${UPLOAD_REQUEST_RS}"
+fi

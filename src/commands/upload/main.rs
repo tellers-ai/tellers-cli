@@ -2,7 +2,7 @@ use clap::{Args, Subcommand};
 use regex::Regex;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,8 +31,9 @@ use tokio::sync::mpsc as tokio_mpsc;
 use tellers_api_client::apis::accepts_api_key_api as api;
 use tellers_api_client::apis::configuration::Configuration;
 use tellers_api_client::models::{
-    AssetUploadRequest, AssetUploadResponse, CreateFolderRequest, FileType, ProcessAssetsRequest,
-    SourceFileInfo,
+    AssetUploadRequest, AssetUploadResponse, CreateFolderRequest, FileType, MultipartAbortRequest,
+    MultipartCompletePart, MultipartCompleteRequest, MultipartPartUrlsRequest,
+    ProcessAssetsRequest, SourceFileInfo,
 };
 
 #[derive(Args, Debug)]
@@ -1029,11 +1030,15 @@ fn build_single_upload_request(
         }
     }
     let mut req = AssetUploadRequest::new(
-        i32::try_from(content_length).unwrap_or(i32::MAX),
+        i64::try_from(content_length).unwrap_or(i64::MAX),
         upload_id.clone(),
         source_info,
     );
     req.file_type = Some(infer_file_type(&file_info.original_path));
+    if content_length >= MULTIPART_THRESHOLD_BYTES {
+        req.multipart = Some(true);
+        req.multipart_part_size = Some(Some(MULTIPART_PART_SIZE_BYTES as i32));
+    }
     Ok((req, upload_id, file_in_app_path))
 }
 
@@ -1055,6 +1060,23 @@ fn infer_file_type(path: &PathBuf) -> FileType {
     }
 }
 
+/// Files at least this big go up as an S3 multipart upload, in parts of
+/// [`MULTIPART_PART_SIZE_BYTES`], read from disk one part at a time. Smaller
+/// files take a single PUT, which S3 caps at 5 GB and which is sent from memory.
+const MULTIPART_THRESHOLD_BYTES: u64 = 100 * 1024 * 1024;
+const MULTIPART_PART_SIZE_BYTES: u64 = 50 * 1024 * 1024;
+/// Attempts per part. Offline, every attempt fails at once, so the backoff in
+/// [`part_retry_delay`] is what lets an upload ride out a dropped connection.
+const PART_MAX_ATTEMPTS: u32 = 8;
+
+/// 2s, 4s, 8s, 16s, then 30s: about two minutes of waiting over all attempts.
+fn part_retry_delay(attempt: u32) -> Duration {
+    if cfg!(test) {
+        return Duration::ZERO;
+    }
+    Duration::from_secs((2u64 << (attempt - 1)).min(30))
+}
+
 const UPLOAD_URLS_MAX_RETRIES: u32 = 3;
 const UPLOAD_URLS_RETRY_DELAY: Duration = Duration::from_secs(3);
 
@@ -1071,7 +1093,7 @@ async fn request_presigned_urls(
         );
         println!(
             "HTTP POST {}",
-            format!("{}/users/assets/upload_urls", cfg.base_path)
+            format!("{}/users/assets/uploads", cfg.base_path)
         );
         println!(
             "headers: x-api-key=set, authorization={}",
@@ -1095,14 +1117,7 @@ async fn request_presigned_urls(
 
     let mut last_err = None;
     for attempt in 1..=UPLOAD_URLS_MAX_RETRIES {
-        match api::create_upload_urls_users_assets_upload_urls_post(
-            cfg,
-            requests.clone(),
-            Some(api_key),
-            bearer_opt,
-        )
-        .await
-        {
+        match start_uploads(cfg, requests, api_key, bearer_opt).await {
             Ok(responses) => return Ok(responses),
             Err(e) => {
                 let retryable = match &e {
@@ -1156,6 +1171,369 @@ async fn request_presigned_urls(
         src_opt = src.source();
     }
     Err(m)
+}
+
+/// Start uploads through `uploads`, which hands out no multipart part URLs:
+/// [`put_file_bytes`] mints each one just before sending the part. A backend
+/// that predates the route answers 404; fall back to the deprecated
+/// `upload_urls` there.
+async fn start_uploads(
+    cfg: &Configuration,
+    requests: &Vec<AssetUploadRequest>,
+    api_key: &str,
+    bearer_opt: Option<&str>,
+) -> Result<
+    Vec<AssetUploadResponse>,
+    tellers_api_client::apis::Error<api::CreateUploadUrlsUsersAssetsUploadUrlsPostError>,
+> {
+    match api::create_uploads_users_assets_uploads_post(
+        cfg,
+        requests.clone(),
+        Some(api_key),
+        bearer_opt,
+    )
+    .await
+    {
+        Ok(responses) => Ok(responses),
+        Err(tellers_api_client::apis::Error::ResponseError(resp))
+            if resp.status.as_u16() == 404 && is_missing_route(&resp.content) =>
+        {
+            // Deprecated, and called on purpose: only where `uploads` is missing.
+            #[allow(deprecated)]
+            api::create_upload_urls_users_assets_upload_urls_post(
+                cfg,
+                requests.clone(),
+                Some(api_key),
+                bearer_opt,
+            )
+            .await
+        }
+        Err(e) => Err(retype_api_error(e)),
+    }
+}
+
+/// FastAPI's own 404 for an unknown route, as opposed to a route that exists
+/// answering 404 (a parent folder not found).
+fn is_missing_route(body: &str) -> bool {
+    body.contains("\"Not Found\"")
+}
+
+/// The two start routes have distinct generated error types with the same
+/// shape; carry a failure of one as the other so callers keep one type.
+fn retype_api_error<A, B>(
+    e: tellers_api_client::apis::Error<A>,
+) -> tellers_api_client::apis::Error<B> {
+    use tellers_api_client::apis::{Error, ResponseContent};
+    match e {
+        Error::Reqwest(e) => Error::Reqwest(e),
+        Error::Serde(e) => Error::Serde(e),
+        Error::Io(e) => Error::Io(e),
+        Error::ResponseError(r) => Error::ResponseError(ResponseContent {
+            status: r.status,
+            content: r.content,
+            entity: None,
+        }),
+    }
+}
+
+/// PUT the file's bytes: one request for a single-part upload, or part by
+/// part for a multipart one. `on_progress` gets the bytes handled so far.
+async fn put_file_bytes(
+    file_path: &PathBuf,
+    upload_resp: &AssetUploadResponse,
+    http: &reqwest::Client,
+    cfg: &Configuration,
+    api_key: &str,
+    bearer_opt: Option<&str>,
+    on_progress: &(dyn Fn(u64) + Sync),
+) -> Result<(), String> {
+    let total_bytes = std::fs::metadata(file_path)
+        .map_err(|e| format!("failed to stat {}: {}", file_path.display(), e))?
+        .len();
+    let content_type = mime_guess::from_path(file_path)
+        .first_or_text_plain()
+        .essence_str()
+        .to_string();
+
+    let multipart_upload_id = upload_resp.multipart_upload_id.clone().flatten();
+    let Some(multipart_upload_id) = multipart_upload_id else {
+        return put_single(
+            file_path,
+            upload_resp,
+            http,
+            total_bytes,
+            &content_type,
+            on_progress,
+        )
+        .await;
+    };
+
+    let asset_id = upload_resp.asset_id.to_string();
+    let result = put_parts(
+        file_path,
+        upload_resp,
+        &multipart_upload_id,
+        http,
+        cfg,
+        api_key,
+        bearer_opt,
+        total_bytes,
+        on_progress,
+    )
+    .await;
+    if result.is_err() {
+        // Release the parts already in S3 now rather than leaving them to the
+        // server's sweep.
+        let _ = api::abort_multipart_asset_upload_users_assets_multipart_abort_post(
+            cfg,
+            MultipartAbortRequest::new(asset_id, multipart_upload_id),
+            Some(api_key),
+            bearer_opt,
+        )
+        .await;
+    }
+    result
+}
+
+async fn put_single(
+    file_path: &PathBuf,
+    upload_resp: &AssetUploadResponse,
+    http: &reqwest::Client,
+    total_bytes: u64,
+    content_type: &str,
+    on_progress: &(dyn Fn(u64) + Sync),
+) -> Result<(), String> {
+    let upload_url = single_put_url(upload_resp);
+
+    let mut f = File::open(file_path)
+        .map_err(|e| format!("failed to open {}: {}", file_path.display(), e))?;
+    let mut buf = Vec::with_capacity(total_bytes as usize);
+    let mut chunk = vec![0u8; (1024 * 1024).min(total_bytes as usize)];
+    let mut read_so_far = 0u64;
+    loop {
+        let n = f
+            .read(&mut chunk)
+            .map_err(|e| format!("failed to read {}: {}", file_path.display(), e))?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        read_so_far += n as u64;
+        on_progress(read_so_far);
+    }
+
+    let put_res = http
+        .put(upload_url.as_str())
+        .header(reqwest::header::CONTENT_LENGTH, total_bytes)
+        .header(reqwest::header::CONTENT_TYPE, content_type)
+        .body(buf)
+        .send()
+        .await
+        .map_err(|e| format!("upload failed for {}: {}", file_path.display(), e))?;
+
+    if !put_res.status().is_success() {
+        let status = put_res.status();
+        let body = put_res
+            .text()
+            .await
+            .unwrap_or_else(|_| "<failed to read error body>".to_string());
+        return Err(format!(
+            "Upload failed for {}: HTTP {} - {}",
+            file_path.display(),
+            status,
+            body
+        ));
+    }
+    Ok(())
+}
+
+async fn put_parts(
+    file_path: &PathBuf,
+    upload_resp: &AssetUploadResponse,
+    multipart_upload_id: &str,
+    http: &reqwest::Client,
+    cfg: &Configuration,
+    api_key: &str,
+    bearer_opt: Option<&str>,
+    total_bytes: u64,
+    on_progress: &(dyn Fn(u64) + Sync),
+) -> Result<(), String> {
+    let part_size = upload_resp
+        .multipart_part_size
+        .flatten()
+        .filter(|size| *size > 0)
+        .ok_or_else(|| "multipart upload without a part size".to_string())?
+        as u64;
+    let part_count = upload_resp
+        .multipart_part_count
+        .flatten()
+        .filter(|count| *count > 0)
+        .ok_or_else(|| "multipart upload without a part count".to_string())?;
+    let asset_id = upload_resp.asset_id.to_string();
+    // Filled only by the deprecated `upload_urls`; used where the backend has
+    // no `multipart/part_urls` to mint from.
+    let up_front_urls = upload_resp.presigned_put_urls.clone().unwrap_or_default();
+    let mut part_urls_supported = true;
+
+    let mut f = File::open(file_path)
+        .map_err(|e| format!("failed to open {}: {}", file_path.display(), e))?;
+    let mut parts = Vec::with_capacity(part_count as usize);
+    let mut sent = 0u64;
+
+    for part_number in 1..=part_count {
+        let start = (part_number as u64 - 1) * part_size;
+        let len = part_size.min(total_bytes.saturating_sub(start));
+        let mut body = vec![0u8; len as usize];
+        f.seek(SeekFrom::Start(start))
+            .and_then(|_| f.read_exact(&mut body))
+            .map_err(|e| format!("failed to read {}: {}", file_path.display(), e))?;
+
+        let mut attempt = 1;
+        let etag = loop {
+            // A fresh URL per attempt: part URLs are signed with temporary
+            // credentials, so one minted long before use, or the one a failed
+            // attempt used, may have expired.
+            let url = match mint_part_url(
+                cfg,
+                api_key,
+                bearer_opt,
+                &asset_id,
+                multipart_upload_id,
+                part_number,
+                &mut part_urls_supported,
+            )
+            .await
+            {
+                Ok(Some(url)) => Ok(url),
+                Ok(None) => up_front_urls
+                    .get(part_number as usize - 1)
+                    .cloned()
+                    .ok_or_else(|| format!("no URL for part {}", part_number)),
+                Err(e) => Err(e),
+            };
+            let result = match url {
+                Ok(url) => put_part(http, &url, body.clone()).await,
+                Err(e) => Err(e),
+            };
+            match result {
+                Ok(etag) => break etag,
+                Err(e) if attempt < PART_MAX_ATTEMPTS => {
+                    output::info(format!(
+                        "Part {}/{} of {} failed (attempt {}/{}): {}; retrying...",
+                        part_number,
+                        part_count,
+                        file_path.display(),
+                        attempt,
+                        PART_MAX_ATTEMPTS,
+                        e
+                    ));
+                    sleep(part_retry_delay(attempt)).await;
+                    attempt += 1;
+                }
+                Err(e) => {
+                    return Err(format!(
+                        "Upload failed for {}: part {}/{}: {}",
+                        file_path.display(),
+                        part_number,
+                        part_count,
+                        e
+                    ))
+                }
+            }
+        };
+
+        parts.push(MultipartCompletePart::new(part_number, etag));
+        sent += len;
+        on_progress(sent);
+    }
+
+    match api::complete_multipart_asset_upload_users_assets_multipart_complete_post(
+        cfg,
+        MultipartCompleteRequest::new(asset_id, multipart_upload_id.to_string(), parts),
+        Some(api_key),
+        bearer_opt,
+    )
+    .await
+    {
+        // The backend answers 204 with no body, which the generated client
+        // still tries to decode as JSON. It only decodes a success status,
+        // so a decoding error here means the upload was completed.
+        Ok(_) | Err(tellers_api_client::apis::Error::Serde(_)) => Ok(()),
+        Err(e) => Err(format!(
+            "failed to complete upload of {}: {}",
+            file_path.display(),
+            e
+        )),
+    }
+}
+
+/// A fresh URL for one part, or `None` on a backend without `part_urls`
+/// (it answers 404, and is then not asked again for this file).
+async fn mint_part_url(
+    cfg: &Configuration,
+    api_key: &str,
+    bearer_opt: Option<&str>,
+    asset_id: &str,
+    multipart_upload_id: &str,
+    part_number: i32,
+    part_urls_supported: &mut bool,
+) -> Result<Option<String>, String> {
+    if !*part_urls_supported {
+        return Ok(None);
+    }
+    match api::create_multipart_part_urls_users_assets_multipart_part_urls_post(
+        cfg,
+        MultipartPartUrlsRequest::new(
+            asset_id.to_string(),
+            multipart_upload_id.to_string(),
+            vec![part_number],
+        ),
+        Some(api_key),
+        bearer_opt,
+    )
+    .await
+    {
+        Ok(resp) => resp
+            .urls
+            .into_iter()
+            .find(|u| u.part_number == part_number)
+            .map(|u| Some(u.url))
+            .ok_or_else(|| format!("no URL returned for part {}", part_number)),
+        Err(tellers_api_client::apis::Error::ResponseError(resp))
+            if resp.status.as_u16() == 404 && is_missing_route(&resp.content) =>
+        {
+            *part_urls_supported = false;
+            Ok(None)
+        }
+        Err(e) => Err(format!(
+            "failed to get a URL for part {}: {}",
+            part_number, e
+        )),
+    }
+}
+
+/// PUT one part and return the ETag S3 answered with, unquoted.
+async fn put_part(http: &reqwest::Client, url: &str, body: Vec<u8>) -> Result<String, String> {
+    let len = body.len();
+    let res = http
+        .put(url)
+        .header(reqwest::header::CONTENT_LENGTH, len)
+        .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = res.status();
+    if !status.is_success() {
+        let text = res.text().await.unwrap_or_default();
+        return Err(format!("HTTP {} - {}", status, text));
+    }
+    res.headers()
+        .get(reqwest::header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.trim_matches('"').to_string())
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| "S3 returned no ETag".to_string())
 }
 
 /// Upload files with one presigned URL request per file (queue-style, like encode local).
@@ -1702,68 +2080,34 @@ pub async fn upload_file_to_presigned(
     file_path: &PathBuf,
     upload_resp: &AssetUploadResponse,
     http: &reqwest::Client,
-    _cfg: &Configuration,
-    _api_key: &str,
-    _bearer_opt: Option<&str>,
+    cfg: &Configuration,
+    api_key: &str,
+    bearer_opt: Option<&str>,
     progress_handle: Option<&TwoQueueProgressHandle>,
 ) -> Result<(), String> {
     let total_bytes = std::fs::metadata(file_path)
         .map_err(|e| format!("failed to stat {}: {}", file_path.display(), e))?
         .len();
-    let upload_url = single_put_url(upload_resp);
-
-    let mut f = File::open(file_path)
-        .map_err(|e| format!("failed to open {}: {}", file_path.display(), e))?;
-    let mut buf = Vec::with_capacity(total_bytes as usize);
-    let mut chunk = vec![0u8; (1024 * 1024).min(total_bytes as usize)];
-    let mut read_so_far = 0u64;
-    loop {
-        let n = f
-            .read(&mut chunk)
-            .map_err(|e| format!("failed to read {}: {}", file_path.display(), e))?;
-        if n == 0 {
-            break;
-        }
-        buf.extend_from_slice(&chunk[..n]);
-        read_so_far += n as u64;
+    let on_progress = |done: u64| {
         if let Some(ph) = progress_handle {
             let pct = if total_bytes > 0 {
-                100.0 * (read_so_far as f64 / total_bytes as f64)
+                100.0 * (done as f64 / total_bytes as f64)
             } else {
                 100.0
             };
             ph.set_upload_current_pct(Some(pct));
         }
-    }
-
-    let content_type = mime_guess::from_path(file_path)
-        .first_or_text_plain()
-        .essence_str()
-        .to_string();
-
-    let put_res = http
-        .put(upload_url.as_str())
-        .header(reqwest::header::CONTENT_LENGTH, total_bytes)
-        .header(reqwest::header::CONTENT_TYPE, &content_type)
-        .body(buf)
-        .send()
-        .await
-        .map_err(|e| format!("upload failed for {}: {}", file_path.display(), e))?;
-
-    if !put_res.status().is_success() {
-        let status = put_res.status();
-        let body = put_res
-            .text()
-            .await
-            .unwrap_or_else(|_| "<failed to read error body>".to_string());
-        return Err(format!(
-            "Upload failed for {}: HTTP {} - {}",
-            file_path.display(),
-            status,
-            body
-        ));
-    }
-    Ok(())
+    };
+    put_file_bytes(
+        file_path,
+        upload_resp,
+        http,
+        cfg,
+        api_key,
+        bearer_opt,
+        &on_progress,
+    )
+    .await
 }
 
 async fn upload_single_file(
@@ -1777,68 +2121,33 @@ async fn upload_single_file(
     http: &reqwest::Client,
     progress_handle: Option<&ProgressHandle>,
     total_bytes: u64,
-    _cfg: &Configuration,
-    _api_key: &str,
-    _bearer_opt: Option<&str>,
+    cfg: &Configuration,
+    api_key: &str,
+    bearer_opt: Option<&str>,
 ) -> Result<(), String> {
-    let upload_url = single_put_url(upload_resp);
-
-    let mut f = File::open(file_path)
-        .map_err(|e| format!("failed to open {}: {}", file_path.display(), e))?;
-    let mut buf = Vec::with_capacity(total_bytes as usize);
-
-    const CHUNK_SIZE: usize = 1024 * 1024; // 1MB chunks
-    let mut uploaded = 0u64;
-    let mut chunk = vec![0u8; CHUNK_SIZE.min(total_bytes as usize)];
-
-    loop {
-        let n = f
-            .read(&mut chunk)
-            .map_err(|e| format!("failed to read {}: {}", file_path.display(), e))?;
-        if n == 0 {
-            break;
-        }
-        buf.extend_from_slice(&chunk[..n]);
-        uploaded += n as u64;
+    let on_progress = |done: u64| {
         if let Some(ph) = progress_handle {
-            let _ = ph.update_task(task_id, uploaded);
+            let _ = ph.update_task(task_id, done);
         }
-    }
-
-    let content_type = mime_guess::from_path(file_path)
-        .first_or_text_plain()
-        .essence_str()
-        .to_string();
-
-    let put_res = http
-        .put(upload_url.as_str())
-        .header(reqwest::header::CONTENT_LENGTH, total_bytes)
-        .header(reqwest::header::CONTENT_TYPE, &content_type)
-        .body(buf)
-        .send()
-        .await
-        .map_err(|e| format!("upload failed for {}: {}", file_path.display(), e))?;
-
-    if let Some(ph) = progress_handle {
-        let _ = ph.update_task(task_id, total_bytes);
-    }
-
-    if !put_res.status().is_success() {
-        let status = put_res.status();
-        let body = put_res
-            .text()
-            .await
-            .unwrap_or_else(|_| "<failed to read error body>".to_string());
-        let error_msg = format!(
-            "Upload failed for {}: HTTP {} - {}",
-            file_path.display(),
-            status,
-            body
-        );
+    };
+    if let Err(error_msg) = put_file_bytes(
+        file_path,
+        upload_resp,
+        http,
+        cfg,
+        api_key,
+        bearer_opt,
+        &on_progress,
+    )
+    .await
+    {
         if let Some(ph) = progress_handle {
             let _ = ph.add_error(error_msg.clone());
         }
         return Err(error_msg);
+    }
+    if let Some(ph) = progress_handle {
+        let _ = ph.update_task(task_id, total_bytes);
     }
 
     if let Err(e) = uploads_tracking::record_upload(
@@ -1854,4 +2163,192 @@ async fn upload_single_file(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod multipart_tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+    use std::sync::Mutex;
+
+    /// What the fake backend + S3 saw, in order: `METHOD path`.
+    type Log = Arc<Mutex<Vec<String>>>;
+
+    /// A one-request-per-connection HTTP server playing the Tellers backend
+    /// and S3. `reject` lists the PUT paths S3 answers 403 to.
+    fn serve(part_urls_route: bool, reject: Vec<String>) -> (String, Log) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let log: Log = Arc::new(Mutex::new(Vec::new()));
+        let (log_srv, base_srv) = (log.clone(), base.clone());
+        std::thread::spawn(move || {
+            let mut minted = 0;
+            for stream in listener.incoming() {
+                let mut stream = stream.unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                let mut parts = line.split_whitespace();
+                let method = parts.next().unwrap_or("").to_string();
+                let path = parts.next().unwrap_or("").to_string();
+                let mut len = 0usize;
+                loop {
+                    let mut header = String::new();
+                    reader.read_line(&mut header).unwrap();
+                    if header.trim().is_empty() {
+                        break;
+                    }
+                    let lower = header.to_ascii_lowercase();
+                    if let Some(v) = lower.strip_prefix("content-length:") {
+                        len = v.trim().parse().unwrap();
+                    }
+                }
+                let mut body = vec![0u8; len];
+                reader.read_exact(&mut body).unwrap();
+                log_srv.lock().unwrap().push(format!("{} {}", method, path));
+
+                let (status, extra, payload) = match (method.as_str(), path.as_str()) {
+                    ("POST", "/users/assets/multipart/part_urls") if !part_urls_route => (
+                        "404 Not Found",
+                        String::new(),
+                        r#"{"detail":"Not Found"}"#.to_string(),
+                    ),
+                    ("POST", "/users/assets/multipart/part_urls") => {
+                        minted += 1;
+                        let req: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                        let n = req["part_numbers"][0].as_i64().unwrap();
+                        let url = format!("{}/s3/part/{}/{}", base_srv, n, minted);
+                        (
+                            "200 OK",
+                            String::new(),
+                            format!(r#"{{"urls":[{{"part_number":{},"url":"{}"}}]}}"#, n, url),
+                        )
+                    }
+                    ("PUT", p) if reject.iter().any(|r| r == p) => {
+                        ("403 Forbidden", String::new(), String::new())
+                    }
+                    ("PUT", p) => (
+                        "200 OK",
+                        format!("ETag: \"etag-{}\"\r\n", p.trim_start_matches('/')),
+                        String::new(),
+                    ),
+                    // complete and abort: 204 with no body, as the backend answers.
+                    _ => ("204 No Content", String::new(), String::new()),
+                };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {}\r\n{}{}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    status,
+                    if payload.is_empty() {
+                        ""
+                    } else {
+                        "Content-Type: application/json\r\n"
+                    },
+                    extra,
+                    payload.len(),
+                    payload
+                );
+            }
+        });
+        (base, log)
+    }
+
+    fn three_part_upload(up_front: Vec<String>) -> AssetUploadResponse {
+        let mut resp = AssetUploadResponse::new("upload-1".into(), Uuid::nil());
+        resp.multipart_upload_id = Some(Some("mpu-1".into()));
+        resp.multipart_part_size = Some(Some(5));
+        resp.multipart_part_count = Some(Some(3));
+        resp.presigned_put_urls = Some(up_front);
+        resp
+    }
+
+    async fn upload(base: &str, resp: &AssetUploadResponse) -> Result<(), String> {
+        let dir = std::env::temp_dir().join(format!("tellers-mp-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("clip.mp4");
+        std::fs::write(&file, b"0123456789AB").unwrap();
+        let mut cfg = Configuration::new();
+        cfg.base_path = base.to_string();
+        let result = put_file_bytes(
+            &file,
+            resp,
+            &reqwest::Client::new(),
+            &cfg,
+            "key",
+            None,
+            &|_| {},
+        )
+        .await;
+        let _ = std::fs::remove_dir_all(&dir);
+        result
+    }
+
+    fn puts(log: &Log) -> Vec<String> {
+        log.lock()
+            .unwrap()
+            .iter()
+            .filter(|l| l.starts_with("PUT "))
+            .cloned()
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn each_part_goes_to_a_freshly_minted_url() {
+        let (base, log) = serve(true, vec![]);
+
+        upload(&base, &three_part_upload(vec![])).await.unwrap();
+
+        assert_eq!(
+            puts(&log),
+            ["PUT /s3/part/1/1", "PUT /s3/part/2/2", "PUT /s3/part/3/3"]
+        );
+        assert_eq!(
+            log.lock().unwrap().last().unwrap(),
+            "POST /users/assets/multipart/complete"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rejected_part_is_retried_with_a_new_url() {
+        let (base, log) = serve(true, vec!["/s3/part/2/2".into()]);
+
+        upload(&base, &three_part_upload(vec![])).await.unwrap();
+
+        assert_eq!(
+            puts(&log),
+            [
+                "PUT /s3/part/1/1",
+                "PUT /s3/part/2/2",
+                "PUT /s3/part/2/3",
+                "PUT /s3/part/3/4"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_part_failing_every_attempt_aborts_the_upload() {
+        let rejected = (2..=9).map(|m| format!("/s3/part/2/{}", m)).collect();
+        let (base, log) = serve(true, rejected);
+
+        let err = upload(&base, &three_part_upload(vec![])).await.unwrap_err();
+
+        assert!(err.contains("part 2/3"), "{}", err);
+        let log = log.lock().unwrap();
+        assert!(!log.iter().any(|l| l.ends_with("/multipart/complete")));
+        assert_eq!(log.last().unwrap(), "POST /users/assets/multipart/abort");
+    }
+
+    #[tokio::test]
+    async fn without_part_urls_it_uses_the_up_front_urls() {
+        let (base, log) = serve(false, vec![]);
+        let up_front = (1..=3).map(|n| format!("{}/s3/old/{}", base, n)).collect();
+
+        upload(&base, &three_part_upload(up_front)).await.unwrap();
+
+        assert_eq!(
+            puts(&log),
+            ["PUT /s3/old/1", "PUT /s3/old/2", "PUT /s3/old/3"]
+        );
+    }
 }
