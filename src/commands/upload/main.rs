@@ -1065,8 +1065,17 @@ fn infer_file_type(path: &PathBuf) -> FileType {
 /// files take a single PUT, which S3 caps at 5 GB and which is sent from memory.
 const MULTIPART_THRESHOLD_BYTES: u64 = 100 * 1024 * 1024;
 const MULTIPART_PART_SIZE_BYTES: u64 = 50 * 1024 * 1024;
-const PART_MAX_ATTEMPTS: u32 = 3;
-const PART_RETRY_DELAY: Duration = Duration::from_secs(2);
+/// Attempts per part. Offline, every attempt fails at once, so the backoff in
+/// [`part_retry_delay`] is what lets an upload ride out a dropped connection.
+const PART_MAX_ATTEMPTS: u32 = 8;
+
+/// 2s, 4s, 8s, 16s, then 30s: about two minutes of waiting over all attempts.
+fn part_retry_delay(attempt: u32) -> Duration {
+    if cfg!(test) {
+        return Duration::ZERO;
+    }
+    Duration::from_secs((2u64 << (attempt - 1)).min(30))
+}
 
 const UPLOAD_URLS_MAX_RETRIES: u32 = 3;
 const UPLOAD_URLS_RETRY_DELAY: Duration = Duration::from_secs(3);
@@ -1418,7 +1427,7 @@ async fn put_parts(
                         PART_MAX_ATTEMPTS,
                         e
                     ));
-                    sleep(PART_RETRY_DELAY * attempt).await;
+                    sleep(part_retry_delay(attempt)).await;
                     attempt += 1;
                 }
                 Err(e) => {
@@ -2310,7 +2319,7 @@ mod multipart_tests {
 
     #[tokio::test]
     async fn a_part_failing_every_attempt_aborts_the_upload() {
-        let rejected = (2..=4).map(|m| format!("/s3/part/2/{}", m)).collect();
+        let rejected = (2..=9).map(|m| format!("/s3/part/2/{}", m)).collect();
         let (base, log) = serve(true, rejected);
 
         let err = upload(&base, &three_part_upload(vec![])).await.unwrap_err();
