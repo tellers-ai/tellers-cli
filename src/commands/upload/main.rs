@@ -1447,21 +1447,24 @@ async fn put_parts(
         on_progress(sent);
     }
 
-    api::complete_multipart_asset_upload_users_assets_multipart_complete_post(
+    match api::complete_multipart_asset_upload_users_assets_multipart_complete_post(
         cfg,
         MultipartCompleteRequest::new(asset_id, multipart_upload_id.to_string(), parts),
         Some(api_key),
         bearer_opt,
     )
     .await
-    .map_err(|e| {
-        format!(
+    {
+        // The backend answers 204 with no body, which the generated client
+        // still tries to decode as JSON. It only decodes a success status,
+        // so a decoding error here means the upload was completed.
+        Ok(_) | Err(tellers_api_client::apis::Error::Serde(_)) => Ok(()),
+        Err(e) => Err(format!(
             "failed to complete upload of {}: {}",
             file_path.display(),
             e
-        )
-    })?;
-    Ok(())
+        )),
+    }
 }
 
 /// A fresh URL for one part, or `None` on a backend without `part_urls`
@@ -2230,12 +2233,18 @@ mod multipart_tests {
                         format!("ETag: \"etag-{}\"\r\n", p.trim_start_matches('/')),
                         String::new(),
                     ),
-                    _ => ("200 OK", String::new(), "null".to_string()),
+                    // complete and abort: 204 with no body, as the backend answers.
+                    _ => ("204 No Content", String::new(), String::new()),
                 };
                 let _ = write!(
                     stream,
-                    "HTTP/1.1 {}\r\nContent-Type: application/json\r\n{}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    "HTTP/1.1 {}\r\n{}{}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
                     status,
+                    if payload.is_empty() {
+                        ""
+                    } else {
+                        "Content-Type: application/json\r\n"
+                    },
                     extra,
                     payload.len(),
                     payload
