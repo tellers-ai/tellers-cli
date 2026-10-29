@@ -1,6 +1,6 @@
 [package]
 name = "tellers"
-version = "0.1.0"
+version = "0.0.5"
 edition = "2021"
 description = "Tellers CLI - interact with tellers.ai from the terminal"
 license = ""
