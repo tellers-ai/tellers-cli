@@ -1,12 +1,11 @@
-use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::AUTHORIZATION;
+use serde_json::Value;
 use std::io::{self, Write};
-use std::sync::mpsc;
-use std::thread;
 use tellers_api_client::apis::configuration::Configuration;
 use tellers_api_client::models::agent_message_request::LlmModel;
-use tellers_api_client::models::agent_message_request_without_no_interaction::LlmModel as LlmModelJson;
-use tellers_api_client::models::{AgentMessageRequest, AgentMessageRequestWithoutNoInteraction};
+use tellers_api_client::models::AgentMessageRequest;
 
+use crate::commands::agent_ws::{self, Auth, Sent};
 use crate::commands::api_config;
 
 #[derive(Clone, Default, Debug)]
@@ -183,9 +182,16 @@ fn parse_llm_model(s: &str) -> Option<LlmModel> {
     serde_json::from_str::<LlmModel>(&format!("\"{}\"", s)).ok()
 }
 
-fn build_agent_request(message: String, opts: &PromptOptions) -> AgentMessageRequest {
+/// The request body for `POST /agent/messages`. JSON mode runs the turn to
+/// the end on its own (`no_interaction`), which is what its parsed result
+/// (projects, assets, summary) is built from.
+fn build_agent_request(
+    message: String,
+    opts: &PromptOptions,
+    chat_id: Option<&str>,
+) -> Result<Value, String> {
     let mut req = AgentMessageRequest::new(message);
-    req.no_interaction = Some(opts.no_interaction);
+    req.no_interaction = Some(opts.no_interaction || opts.json_response);
     if let Some(ref tools) = opts.tools {
         req.tools = Some(tools.clone());
     }
@@ -194,27 +200,82 @@ fn build_agent_request(message: String, opts: &PromptOptions) -> AgentMessageReq
             req.llm_model = Some(lm);
         }
     }
-    req
-}
-
-fn parse_llm_model_json(s: &str) -> Option<LlmModelJson> {
-    serde_json::from_str::<LlmModelJson>(&format!("\"{}\"", s)).ok()
-}
-
-fn build_agent_request_json(
-    message: String,
-    opts: &PromptOptions,
-) -> AgentMessageRequestWithoutNoInteraction {
-    let mut req = AgentMessageRequestWithoutNoInteraction::new(message);
-    if let Some(ref tools) = opts.tools {
-        req.tools = Some(tools.clone());
+    let mut body = serde_json::to_value(&req).map_err(|e| e.to_string())?;
+    if let (Some(chat_id), Some(object)) = (chat_id, body.as_object_mut()) {
+        object.insert("chat_id".to_string(), Value::String(chat_id.to_string()));
     }
-    if let Some(ref model) = opts.llm_model {
-        if let Some(lm) = parse_llm_model_json(model) {
-            req.llm_model = Some(lm);
+    Ok(body)
+}
+
+fn runtime() -> Result<tokio::runtime::Runtime, String> {
+    tokio::runtime::Runtime::new().map_err(|e| format!("failed to start runtime: {}", e))
+}
+
+fn pretty(value: &Value) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string())
+}
+
+/// Prints a turn as it streams: reasoning in grey, then the answer.
+struct TurnPrinter {
+    saw_reasoning: bool,
+    inserted_gap: bool,
+}
+
+impl TurnPrinter {
+    fn new() -> Self {
+        Self {
+            saw_reasoning: false,
+            inserted_gap: false,
         }
     }
-    req
+
+    fn on_event(&mut self, event: &str, data: &Value) {
+        let mut stdout = io::stdout();
+        match event {
+            "response.reasoning_summary_text.delta" => {
+                if let Some(delta) = data.get("delta").and_then(Value::as_str) {
+                    print!("\x1b[90m{}\x1b[0m", delta);
+                    self.saw_reasoning = true;
+                }
+            }
+            "response.output_text.delta" => {
+                if let Some(delta) = data.get("delta").and_then(Value::as_str) {
+                    if self.saw_reasoning && !self.inserted_gap {
+                        print!("\n\n");
+                        self.inserted_gap = true;
+                    }
+                    print!("{}", delta);
+                }
+            }
+            "tellers.agent.error" => {
+                let message = data.get("message").and_then(Value::as_str).unwrap_or("error");
+                eprintln!("\nerror: {}", message);
+            }
+            _ => {}
+        }
+        let _ = stdout.flush();
+    }
+}
+
+/// Sends one message and prints the turn that takes it (or, in JSON mode,
+/// the turn's parsed result). Returns the chat id, for the next message.
+async fn send_and_print(
+    cfg: &Configuration,
+    auth: &Auth<'_>,
+    message: String,
+    opts: &PromptOptions,
+    chat_id: Option<&str>,
+) -> Result<String, String> {
+    let body = build_agent_request(message, opts, chat_id)?;
+    let sent = agent_ws::send_message(cfg, auth, &body).await?;
+    if opts.json_response {
+        let result = agent_ws::wait_for_result(cfg, auth, &sent.chat_id).await?;
+        println!("{}", pretty(&result));
+        return Ok(sent.chat_id);
+    }
+    let mut printer = TurnPrinter::new();
+    agent_ws::follow_turn(cfg, auth, &sent, |event, data| printer.on_event(event, data)).await?;
+    Ok(sent.chat_id)
 }
 
 pub fn run_interactive(
@@ -225,39 +286,42 @@ pub fn run_interactive(
     let cfg = api_config::create_config();
     let api_key = api_config::get_api_key(None)?;
     let bearer_header = api_config::get_bearer_header(None);
+    let auth = Auth {
+        api_key: &api_key,
+        bearer: bearer_header.as_deref(),
+    };
+    let rt = runtime()?;
 
-    let opts_clone = opts.clone();
-    stream_and_print(
-        &cfg,
-        &api_key,
-        bearer_header.as_deref(),
-        prompt_text.clone(),
-        &opts_clone,
-    )?;
-
+    let mut chat_id = rt.block_on(send_and_print(&cfg, &auth, prompt_text, &opts, None))?;
     if opts.no_interaction || opts.json_response {
         return Ok(());
     }
 
+    // Every message of the session goes to the same chat, so the agent keeps
+    // the conversation.
     let mut stdout = io::stdout();
     let stdin = io::stdin();
     loop {
         print!("\nYou: ");
         let _ = stdout.flush();
         let mut line = String::new();
-        if stdin.read_line(&mut line).is_err() {
-            break;
+        // 0 bytes is end of input (Ctrl-D, or a piped prompt run out): stop,
+        // rather than reading empty lines forever.
+        match stdin.read_line(&mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
         }
         let message = line.trim().to_string();
         if message.is_empty() {
             continue;
         }
-        let opts_loop = opts.clone();
-        stream_and_print(&cfg, &api_key, bearer_header.as_deref(), message, &opts_loop)?;
+        chat_id = rt.block_on(send_and_print(&cfg, &auth, message, &opts, Some(&chat_id)))?;
     }
     Ok(())
 }
 
+/// One-shot: the turn's parsed result as JSON with `--json-response`,
+/// otherwise the agent's answer as plain text.
 pub fn run_background(
     prompt_text: String,
     _full_auto: bool,
@@ -266,402 +330,34 @@ pub fn run_background(
     let cfg = api_config::create_config();
     let api_key = api_config::get_api_key(None)?;
     let bearer_header = api_config::get_bearer_header(None);
-
-    let request = if opts.json_response {
-        let req = build_agent_request_json(prompt_text, &opts);
-        tokio::runtime::Runtime::new()
-            .map_err(|e| format!("failed to start runtime: {}", e))?
-            .block_on(async move {
-                send_agent_message_json(&cfg, &api_key, bearer_header.as_deref(), req).await
-            })?
-    } else {
-        let request = build_agent_request(prompt_text, &opts);
-        tokio::runtime::Runtime::new()
-            .map_err(|e| format!("failed to start runtime: {}", e))?
-            .block_on(async move {
-                send_agent_message(&cfg, &api_key, bearer_header.as_deref(), request).await
-            })?
+    let auth = Auth {
+        api_key: &api_key,
+        bearer: bearer_header.as_deref(),
     };
-    Ok(request)
-}
-
-async fn send_agent_message_json(
-    cfg: &Configuration,
-    api_key: &str,
-    bearer_opt: Option<&str>,
-    request: AgentMessageRequestWithoutNoInteraction,
-) -> Result<String, String> {
-    let url = format!("{}/agent/response/json", cfg.base_path);
-    let client = reqwest::Client::new();
-    let mut req = client
-        .post(&url)
-        .header("x-api-key", api_key)
-        .header(ACCEPT, "text/event-stream, application/json")
-        .header(CONTENT_TYPE, "application/json");
-    if let Some(b) = bearer_opt {
-        req = req.header(AUTHORIZATION, b);
-    }
-    let resp = req
-        .json(&request)
-        .send()
-        .await
-        .map_err(|e| format!("request failed: {}", e))?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("request failed: status {} body: {}", status, body));
-    }
-    let ctype = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-    let text = resp.text().await.unwrap_or_default();
-    if ctype.starts_with("text/event-stream") {
-        let last = parse_last_json_result_from_sse(&text);
-        return Ok(last.unwrap_or(text));
-    }
-    if ctype.contains("application/json") {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-            return Ok(serde_json::to_string_pretty(&json).unwrap_or(text));
+    runtime()?.block_on(async {
+        let body = build_agent_request(prompt_text, &opts, None)?;
+        let sent: Sent = agent_ws::send_message(&cfg, &auth, &body).await?;
+        if opts.json_response {
+            let result = agent_ws::wait_for_result(&cfg, &auth, &sent.chat_id).await?;
+            return Ok(pretty(&result));
         }
-    }
-    Ok(text)
-}
-
-async fn send_agent_message(
-    cfg: &Configuration,
-    api_key: &str,
-    bearer_opt: Option<&str>,
-    request: AgentMessageRequest,
-) -> Result<String, String> {
-    let url = format!("{}/agent/response", cfg.base_path);
-    let client = reqwest::Client::new();
-    let mut req = client
-        .post(url)
-        .header("x-api-key", api_key)
-        .header(ACCEPT, "text/event-stream, application/json")
-        .header(CONTENT_TYPE, "application/json");
-    if let Some(b) = bearer_opt {
-        req = req.header(AUTHORIZATION, b);
-    }
-
-    let resp = req
-        .json(&request)
-        .send()
-        .await
-        .map_err(|e| format!("request failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("request failed: status {} body: {}", status, body));
-    }
-
-    let ctype = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-
-    if ctype.starts_with("text/event-stream") {
-        let text = resp.text().await.unwrap_or_default();
-        return Ok(text);
-    }
-
-    let text = resp.text().await.unwrap_or_default();
-    if ctype.contains("application/json") {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-            return Ok(serde_json::to_string_pretty(&json).unwrap_or(text));
-        }
-    }
-    Ok(text)
-}
-
-async fn send_agent_message_stream(
-    cfg: &Configuration,
-    api_key: &str,
-    bearer_opt: Option<&str>,
-    request: AgentMessageRequest,
-    tx: mpsc::Sender<String>,
-) -> Result<(), String> {
-    let url = format!("{}/agent/response", cfg.base_path);
-    let client = reqwest::Client::new();
-    let mut req = client
-        .post(&url)
-        .header("x-api-key", api_key)
-        .header(ACCEPT, "text/event-stream, application/json")
-        .header(CONTENT_TYPE, "application/json");
-    if let Some(b) = bearer_opt {
-        req = req.header(AUTHORIZATION, b);
-    }
-
-    let mut resp = req
-        .json(&request)
-        .send()
-        .await
-        .map_err(|e| format!("request failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        let _ = tx.send(format!(
-            "request failed: status {} body: {}\n",
-            status, body
-        ));
-        return Err("request failed".to_string());
-    }
-
-    let ctype = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-
-    if ctype.starts_with("text/event-stream") {
-        let mut buffer = String::new();
-        let mut saw_reasoning = false;
-        let mut inserted_gap = false;
-        while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
-            let normalized = buffer.replace("\r\n", "\n");
-            let mut parts = normalized
-                .split("\n\n")
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>();
-            buffer = match parts.pop() {
-                Some(tail) if !normalized.ends_with("\n\n") => tail,
-                Some(_) => String::new(),
-                None => String::new(),
-            };
-            for ev in parts {
-                let mut event_name: Option<String> = None;
-                let mut data_lines: Vec<String> = Vec::new();
-                for line in ev.lines() {
-                    if let Some(rest) = line.strip_prefix("event:") {
-                        event_name = Some(rest.trim().to_string());
-                    } else if let Some(rest) = line.strip_prefix("data:") {
-                        data_lines.push(rest.trim_start().to_string());
-                    }
-                }
-                let data_str = data_lines.join("\n");
-                if let Some(name) = event_name {
-                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&data_str) {
-                        if let Some(delta) = v.get("delta").and_then(|d| d.as_str()) {
-                            if name.contains("response.reasoning_summary_text.delta") {
-                                let colored = format!("\x1b[90m{}\x1b[0m", delta);
-                                let _ = tx.send(colored);
-                                saw_reasoning = true;
-                            } else if name.contains("response.output_text.delta") {
-                                if saw_reasoning && !inserted_gap {
-                                    let _ = tx.send("\n\n".to_string());
-                                    inserted_gap = true;
-                                }
-                                let _ = tx.send(delta.to_string());
-                            }
-                        }
-                    }
+        let mut answer = String::new();
+        let mut error: Option<String> = None;
+        agent_ws::follow_turn(&cfg, &auth, &sent, |event, data| match event {
+            "response.output_text.delta" => {
+                if let Some(delta) = data.get("delta").and_then(Value::as_str) {
+                    answer.push_str(delta);
                 }
             }
-        }
-        return Ok(());
-    }
-
-    let text = resp.text().await.unwrap_or_default();
-    if ctype.contains("application/json") {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-            let pretty = serde_json::to_string_pretty(&json).unwrap_or(text);
-            let _ = tx.send(pretty);
-            return Ok(());
-        }
-    }
-    let _ = tx.send(text);
-    Ok(())
-}
-
-fn parse_last_json_result_from_sse(sse_text: &str) -> Option<String> {
-    let normalized = sse_text.replace("\r\n", "\n");
-    let mut last_data: Option<String> = None;
-    for ev in normalized.split("\n\n") {
-        let mut event_name: Option<String> = None;
-        let mut data_lines: Vec<&str> = Vec::new();
-        for line in ev.lines() {
-            if let Some(rest) = line.strip_prefix("event:") {
-                event_name = Some(rest.trim().to_string());
-            } else if let Some(rest) = line.strip_prefix("data:") {
-                data_lines.push(rest.trim_start());
+            "tellers.agent.error" => {
+                error = data.get("message").and_then(Value::as_str).map(String::from);
             }
+            _ => {}
+        })
+        .await?;
+        match error {
+            Some(message) if answer.is_empty() => Err(message),
+            _ => Ok(answer),
         }
-        let data_str = data_lines.join("\n");
-        if event_name.as_deref().map_or(false, |n| n.contains("tellers.json_result")) {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&data_str) {
-                last_data = Some(serde_json::to_string_pretty(&v).unwrap_or(data_str));
-            }
-        }
-    }
-    last_data
-}
-
-async fn send_agent_message_stream_json(
-    cfg: &Configuration,
-    api_key: &str,
-    bearer_opt: Option<&str>,
-    request: AgentMessageRequestWithoutNoInteraction,
-    tx: mpsc::Sender<String>,
-) -> Result<(), String> {
-    let url = format!("{}/agent/response/json", cfg.base_path);
-    let client = reqwest::Client::new();
-    let mut req = client
-        .post(&url)
-        .header("x-api-key", api_key)
-        .header(ACCEPT, "text/event-stream, application/json")
-        .header(CONTENT_TYPE, "application/json");
-    if let Some(b) = bearer_opt {
-        req = req.header(AUTHORIZATION, b);
-    }
-
-    let mut resp = req
-        .json(&request)
-        .send()
-        .await
-        .map_err(|e| format!("request failed: {}", e))?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        let _ = tx.send(format!(
-            "request failed: status {} body: {}\n",
-            status, body
-        ));
-        return Err("request failed".to_string());
-    }
-
-    let ctype = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("")
-        .to_string();
-
-    if ctype.starts_with("text/event-stream") {
-        let mut buffer = String::new();
-        let mut last_json_result: Option<String> = None;
-        while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
-            let normalized = buffer.replace("\r\n", "\n");
-            let mut parts = normalized
-                .split("\n\n")
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>();
-            buffer = match parts.pop() {
-                Some(tail) if !normalized.ends_with("\n\n") => tail,
-                Some(_) => String::new(),
-                None => String::new(),
-            };
-            for ev in parts {
-                let mut event_name: Option<String> = None;
-                let mut data_lines: Vec<String> = Vec::new();
-                for line in ev.lines() {
-                    if let Some(rest) = line.strip_prefix("event:") {
-                        event_name = Some(rest.trim().to_string());
-                    } else if let Some(rest) = line.strip_prefix("data:") {
-                        data_lines.push(rest.trim_start().to_string());
-                    }
-                }
-                let data_str = data_lines.join("\n");
-                if let Some(name) = &event_name {
-                    if name.contains("tellers.json_result") {
-                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&data_str) {
-                            let pretty = serde_json::to_string_pretty(&v).unwrap_or(data_str);
-                            last_json_result = Some(pretty);
-                        }
-                    }
-                }
-            }
-        }
-        if let Some(pretty) = last_json_result {
-            let _ = tx.send(pretty);
-            let _ = tx.send("\n".to_string());
-        }
-        return Ok(());
-    }
-
-    let text = resp.text().await.unwrap_or_default();
-    if ctype.contains("application/json") {
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
-            let pretty = serde_json::to_string_pretty(&json).unwrap_or(text);
-            let _ = tx.send(pretty);
-            return Ok(());
-        }
-    }
-    let _ = tx.send(text);
-    Ok(())
-}
-
-fn stream_and_print(
-    cfg: &Configuration,
-    api_key: &str,
-    bearer_opt: Option<&str>,
-    message: String,
-    opts: &PromptOptions,
-) -> Result<(), String> {
-    let (tx, rx) = mpsc::channel::<String>();
-    let cfg_clone = cfg.clone();
-    let api_key_clone = api_key.to_string();
-    let bearer_clone = bearer_opt.map(|s| s.to_string());
-    let opts_clone = opts.clone();
-
-    if opts.json_response {
-        let request = build_agent_request_json(message, opts);
-        thread::spawn(move || {
-            let rt = match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt,
-                Err(err) => {
-                    let _ = tx.send(format!("runtime error: {}\n", err));
-                    return;
-                }
-            };
-            rt.block_on(async move {
-                let _ = send_agent_message_stream_json(
-                    &cfg_clone,
-                    &api_key_clone,
-                    bearer_clone.as_deref(),
-                    request,
-                    tx,
-                )
-                .await;
-            });
-        });
-    } else {
-        let request = build_agent_request(message, &opts_clone);
-        thread::spawn(move || {
-            let rt = match tokio::runtime::Runtime::new() {
-                Ok(rt) => rt,
-                Err(err) => {
-                    let _ = tx.send(format!("runtime error: {}\n", err));
-                    return;
-                }
-            };
-            rt.block_on(async move {
-                let _ = send_agent_message_stream(
-                    &cfg_clone,
-                    &api_key_clone,
-                    bearer_clone.as_deref(),
-                    request,
-                    tx,
-                )
-                .await;
-            });
-        });
-    }
-
-    let mut stdout = io::stdout();
-    while let Ok(chunk) = rx.recv() {
-        print!("{}", chunk);
-        let _ = stdout.flush();
-    }
-    Ok(())
+    })
 }

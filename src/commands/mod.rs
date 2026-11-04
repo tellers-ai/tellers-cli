@@ -1,3 +1,4 @@
+pub mod agent_ws;
 pub mod api_config;
 pub mod asset;
 pub mod auth;

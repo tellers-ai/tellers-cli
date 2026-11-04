@@ -27,6 +27,10 @@ time = { version = "0.3", features = ["formatting"] }
 uuid = { version = "1", features = ["v4"] }
 bytes = "1"
 futures-util = "0.3"
+tokio-tungstenite = { version = "0.24", default-features = false, features = [
+    "connect",
+    "rustls-tls-webpki-roots",
+] }
 tokio-util = { version = "0.7", features = ["codec"] }
 url = "2"
 ffmpeg-sidecar = "2.2"
