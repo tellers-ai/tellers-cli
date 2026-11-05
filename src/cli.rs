@@ -18,7 +18,8 @@ pub struct Cli {
     #[arg(long)]
     pub no_interaction: bool,
 
-    /// Use JSON response endpoint (no_interaction implied; SSE tellers.json_result events).
+    /// Print the turn's parsed result as JSON: projects, assets and summary
+    /// (no_interaction implied).
     #[arg(long)]
     pub json_response: bool,
 

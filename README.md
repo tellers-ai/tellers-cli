@@ -52,7 +52,7 @@ export TELLERS_API_BASE=https://api.tellers.ai
 Run a prompt against the Tellers agent:
 
 - **`tellers "prompt"`** — Streams the response and starts a minimal REPL (reply in the terminal; Ctrl-C to exit).
-- **`tellers --background "prompt"`** — Single request, no REPL; prints the response text (or last JSON result when using `--json-response`).
+- **`tellers --background "prompt"`** — Single request, no REPL; prints the agent's answer as text (or the JSON result when using `--json-response`).
 - **`tellers --full-auto --background "prompt"`** — Same as `--background` with full-auto behavior.
 
 **Prompt options:**
@@ -60,7 +60,7 @@ Run a prompt against the Tellers agent:
 | Flag | Description |
 |------|-------------|
 | `--no-interaction` | Single response only, no REPL. |
-| `--json-response` | Use the JSON endpoint; output is the last `tellers.json_result` event (no interaction implied). |
+| `--json-response` | Output the turn's result as JSON (`status`, `chat_id`, `projects`, `assets`, `message`), from `GET /agent/chat/{id}/result` (no interaction implied). |
 | `--tool <TOOL_ID>` | Enable a tool (repeat for multiple). Omit to use default tools from settings. |
 | `--llm-model <MODEL>` | LLM model (e.g. `gpt-5.4-2026-03-05`). |
 | `--interactive`, `-i` | Interactively set options: JSON response (y/N), no interaction (y/N), tool selection (checkbox list), and LLM model (list). |
