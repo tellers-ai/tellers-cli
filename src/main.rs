@@ -5,6 +5,7 @@ mod logger;
 mod media;
 mod output;
 mod tui;
+mod update_check;
 mod uploads_tracking;
 
 use cli::Cli;
@@ -16,9 +17,13 @@ fn main() {
 
     let cli = Cli::parse();
 
+    if !matches!(&cli.command, Some(cli::Command::Update)) {
+        update_check::auto_check();
+    }
+
     if !matches!(
         &cli.command,
-        Some(cli::Command::Login) | Some(cli::Command::Logout)
+        Some(cli::Command::Login) | Some(cli::Command::Logout) | Some(cli::Command::Update)
     ) {
         if let Err(error) = tokio::runtime::Runtime::new()
             .unwrap()
@@ -41,6 +46,12 @@ fn main() {
         }
         Some(cli::Command::Logout) => {
             if let Err(error) = commands::auth::logout() {
+                eprintln!("error: {}", error);
+                std::process::exit(1);
+            }
+        }
+        Some(cli::Command::Update) => {
+            if let Err(error) = update_check::run() {
                 eprintln!("error: {}", error);
                 std::process::exit(1);
             }

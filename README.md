@@ -45,6 +45,19 @@ Optional:
 export TELLERS_API_BASE=https://api.tellers.ai
 ```
 
+## Staying up to date
+
+`tellers` checks GitHub for a newer release at most once a day and prints an
+upgrade hint on stderr (`brew upgrade tellers` for Homebrew installs). The check
+has a 2-second timeout and never fails a command. It is skipped in CI, when stderr
+is not a terminal, or when `TELLERS_NO_UPDATE_CHECK=1` is set.
+
+Check right away:
+
+```bash
+tellers update
+```
+
 ## Usage
 
 ### Chat / Prompt
