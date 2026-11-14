@@ -28,6 +28,8 @@ pub struct ExportOptions {
     pub dir: PathBuf,
     pub renditions: Vec<String>,
     pub force: bool,
+    /// Print the appended instructions before sending (`--show-instructions`).
+    pub show_instructions: bool,
 }
 
 impl PromptOptions {
@@ -51,12 +53,14 @@ impl PromptOptions {
         dir: Option<PathBuf>,
         renditions: &[String],
         force: bool,
+        show_instructions: bool,
     ) -> Result<Self, String> {
         if let Some(dir) = dir {
             self.export = Some(ExportOptions {
                 dir,
                 renditions: project::parse_renditions(renditions)?,
                 force,
+                show_instructions,
             });
         }
         Ok(self)
@@ -227,7 +231,13 @@ fn build_agent_request(
     chat_id: Option<&str>,
 ) -> Result<Value, String> {
     let message = match opts.export {
-        Some(ref export) => format!("{}{}", message, export_instructions(&export.renditions)),
+        Some(ref export) => {
+            let instructions = export_instructions(&export.renditions);
+            if export.show_instructions {
+                show_instructions(&instructions);
+            }
+            format!("{}{}", message, instructions)
+        }
         None => message,
     };
     let mut req = AgentMessageRequest::new(message);
@@ -322,6 +332,15 @@ and \"completed\": false.\n",
         renditions = renditions.join(", "),
         marker = EXPORT_MARKER,
     )
+}
+
+/// Prints what the CLI adds to the user's prompt, in grey on stderr (so a
+/// `--background` answer on stdout stays clean).
+fn show_instructions(instructions: &str) {
+    eprintln!(
+        "\x1b[90m[added to your prompt by --export-to]{}\x1b[0m\n",
+        instructions.trim_end()
+    );
 }
 
 /// One export the agent reported on an [`EXPORT_MARKER`] line.
@@ -648,7 +667,7 @@ mod tests {
     #[test]
     fn export_mode_appends_instructions_and_runs_without_interaction() {
         let opts = PromptOptions::default()
-            .with_export(Some(PathBuf::from("out")), &["720p".to_string()], false)
+            .with_export(Some(PathBuf::from("out")), &["720p".to_string()], false, false)
             .unwrap();
         let body = build_agent_request("make a cat video".into(), &opts, None).unwrap();
         assert_eq!(body["no_interaction"], json!(true));

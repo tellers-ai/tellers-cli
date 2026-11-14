@@ -45,6 +45,10 @@ pub struct Cli {
     #[arg(long, requires = "export_to")]
     pub export_force: bool,
 
+    /// Print the instructions --export-to appends to the prompt (to stderr).
+    #[arg(long, requires = "export_to")]
+    pub show_instructions: bool,
+
     /// Interactively set json_response, no_interaction, tools, and llm_model.
     #[arg(short, long)]
     pub interactive: bool,

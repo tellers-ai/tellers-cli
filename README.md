@@ -76,6 +76,7 @@ Run a prompt against the Tellers agent:
 | `--json-response` | Output the turn's result as JSON (`status`, `chat_id`, `projects`, `assets`, `message`), from `GET /agent/chat/{id}/result` (no interaction implied). |
 | `--export-to <DIR>` | Make the agent finish the job on its own, export each project it built to MP4, and download each to `DIR/<project name>.mp4` (no interaction implied). See below. |
 | `--export-rendition <RES>` | Rendition(s) for `--export-to` (`360p`…`4k`, repeat or comma-separate). Default `1080p`. |
+| `--show-instructions` | Print the instructions `--export-to` adds to your prompt (on stderr, before sending). |
 | `--export-force` | Replace existing files in the `--export-to` directory (otherwise `<name> (2).mp4`, …). |
 | `--tool <TOOL_ID>` | Enable a tool (repeat for multiple). Omit to use default tools from settings. |
 | `--llm-model <MODEL>` | LLM model (e.g. `gpt-5.4-2026-03-05`). |

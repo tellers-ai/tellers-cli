@@ -124,6 +124,7 @@ fn main() {
                     cli.export_to.clone(),
                     &cli.export_renditions,
                     cli.export_force,
+                    cli.show_instructions,
                 ) {
                     Ok(opts) => opts,
                     Err(error) => {
