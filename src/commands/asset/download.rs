@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Args, ValueEnum};
 use tellers_api_client::apis::accepts_api_key_api as api;
+use tellers_api_client::apis::configuration::Configuration;
 use tellers_api_client::models::asset_download_url_batch_request::Quality;
 use tellers_api_client::models::AssetDownloadUrlBatchRequest;
 use tokio::io::AsyncWriteExt;
@@ -60,62 +61,80 @@ pub struct DownloadArgs {
 
 pub fn run(args: DownloadArgs) -> Result<(), String> {
     let destination = args.output.unwrap_or_else(|| PathBuf::from(&args.asset_id));
-    if destination.exists() && !args.force {
+    let cfg = api_config::create_config();
+    let api_key = api_config::get_api_key(args.api_key)?;
+    let bearer_header = api_config::get_bearer_header(args.auth_bearer);
+
+    tokio::runtime::Runtime::new()
+        .map_err(|e| format!("failed to start runtime: {}", e))?
+        .block_on(download_asset(
+            &cfg,
+            &api_key,
+            bearer_header.as_deref(),
+            &args.asset_id,
+            args.quality.into(),
+            &destination,
+            args.force,
+        ))
+}
+
+/// Resolves the asset's download URL and streams it to `destination`
+/// (through a `.part` file, renamed once complete).
+pub async fn download_asset(
+    cfg: &Configuration,
+    api_key: &str,
+    bearer: Option<&str>,
+    asset_id: &str,
+    quality: Quality,
+    destination: &Path,
+    force: bool,
+) -> Result<(), String> {
+    if destination.exists() && !force {
         return Err(format!(
             "destination already exists: {}; use --force to replace it",
             destination.display()
         ));
     }
 
-    let cfg = api_config::create_config();
-    let api_key = api_config::get_api_key(args.api_key)?;
-    let bearer_header = api_config::get_bearer_header(args.auth_bearer);
-    let asset_id = args.asset_id;
-    let quality = args.quality.into();
-    let partial = partial_path(&destination);
+    let mut request = AssetDownloadUrlBatchRequest::new(vec![asset_id.to_string()]);
+    request.quality = Some(quality);
 
-    tokio::runtime::Runtime::new()
-        .map_err(|e| format!("failed to start runtime: {}", e))?
-        .block_on(async move {
-            let mut request = AssetDownloadUrlBatchRequest::new(vec![asset_id.clone()]);
-            request.quality = Some(quality);
+    let response = api::get_asset_download_url_batch_json_asset_download_urls_post(
+        cfg,
+        request,
+        Some(api_key),
+        bearer,
+    )
+    .await
+    .map_err(|e| format!("failed to resolve asset download URL: {}", e))?;
 
-            let response = api::get_asset_download_url_batch_json_asset_download_urls_post(
-                &cfg,
-                request,
-                Some(&api_key),
-                bearer_header.as_deref(),
-            )
-            .await
-            .map_err(|e| format!("failed to resolve asset download URL: {}", e))?;
-
-            let item = response
-                .items
-                .into_iter()
-                .next()
-                .ok_or_else(|| "download URL response contained no item".to_string())?;
-            if item.error {
-                return Err(format!(
-                    "asset {} cannot be downloaded: {}",
-                    asset_id,
-                    item.error_message
-                        .flatten()
-                        .unwrap_or_else(|| "unknown error".to_string())
-                ));
-            }
-            let url = item
-                .download
+    let item = response
+        .items
+        .into_iter()
+        .next()
+        .ok_or_else(|| "download URL response contained no item".to_string())?;
+    if item.error {
+        return Err(format!(
+            "asset {} cannot be downloaded: {}",
+            asset_id,
+            item.error_message
                 .flatten()
-                .ok_or_else(|| format!("asset {} has no download URL", asset_id))?
-                .url
-                .to_string();
+                .unwrap_or_else(|| "unknown error".to_string())
+        ));
+    }
+    let url = item
+        .download
+        .flatten()
+        .ok_or_else(|| format!("asset {} has no download URL", asset_id))?
+        .url
+        .to_string();
 
-            let result = download_to_file(&url, &partial, &destination, args.force).await;
-            if result.is_err() {
-                let _ = tokio::fs::remove_file(&partial).await;
-            }
-            result
-        })
+    let partial = partial_path(destination);
+    let result = download_to_file(&url, &partial, destination, force).await;
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(&partial).await;
+    }
+    result
 }
 
 fn partial_path(destination: &std::path::Path) -> PathBuf {

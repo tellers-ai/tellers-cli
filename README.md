@@ -74,6 +74,9 @@ Run a prompt against the Tellers agent:
 |------|-------------|
 | `--no-interaction` | Single response only, no REPL. |
 | `--json-response` | Output the turn's result as JSON (`status`, `chat_id`, `projects`, `assets`, `message`), from `GET /agent/chat/{id}/result` (no interaction implied). |
+| `--export-to <DIR>` | Make the agent finish the job on its own, export each project it built to MP4, and download each to `DIR/<project name>.mp4` (no interaction implied). See below. |
+| `--export-rendition <RES>` | Rendition(s) for `--export-to` (`360p`…`4k`, repeat or comma-separate). Default `1080p`. |
+| `--export-force` | Replace existing files in the `--export-to` directory (otherwise `<name> (2).mp4`, …). |
 | `--tool <TOOL_ID>` | Enable a tool (repeat for multiple). Omit to use default tools from settings. |
 | `--llm-model <MODEL>` | LLM model (e.g. `gpt-5.4-2026-03-05`). |
 | `--interactive`, `-i` | Interactively set options: JSON response (y/N), no interaction (y/N), tool selection (checkbox list), and LLM model (list). |
@@ -90,12 +93,26 @@ tellers --no-interaction "Generate a video, with stock footage video of cats"
 # JSON endpoint: only the last JSON result is printed
 tellers --json-response "Generate a video, with stock footage video of cats"
 
+# Prompt → project → MP4 on disk, in one command
+tellers --export-to ./renders "Search a stock video of ocean waves at sunset and add the title 'Golden Hour'"
+
+# In 720p, without the REPL's streaming (prints the answer and saved paths)
+tellers --background --export-to ./renders --export-rendition 720p "Generate a video of cats"
+
 # Choose model and tools via flags
 tellers --llm-model gpt-5.4-2026-03-05 --tool tool_a --tool tool_b "Your prompt"
 
 # Interactive: prompts for JSON, no-interaction, checkbox list for tools, model picker
 tellers -i "Generate a video, with stock footage video of cats"
 ```
+
+**How `--export-to` works:** the CLI appends instructions to your prompt telling the agent to do the request without asking questions, export each project it built with the export tool (waiting for the render), and end its answer with one line per project:
+
+```
+TELLERS_EXPORT {"project_id": "…", "project_name": "Golden Hour", "asset_id": "…", "completed": true}
+```
+
+The turn streams as usual. Once it ends, the CLI reads those lines and downloads each export asset to `DIR/<project name>.mp4`. If the agent reports an export as not completed (or gives no asset), the CLI exports the project itself and downloads the result. With no `TELLERS_EXPORT` line, the command fails.
 
 **Interactive tool selection:** When you use `-i` and the settings include available tools, a TUI checkbox list is shown. Use **↑/↓** to move, **Space** to toggle, **a** to toggle all, **Enter** to confirm. Checkboxes are pre-set from each tool’s `enabled` field in the settings JSON (missing = enabled).
 
@@ -128,6 +145,16 @@ tellers asset download <asset-id> --output /path/to/video.mp4
 ```
 
 Use `--quality highest|lowest|original|480p|720p|1080p` to select a rendition. Existing files are protected by default; pass `--force` to replace one.
+
+### Project Export Command
+
+Render a project to MP4, wait for it, and download it:
+
+```bash
+tellers project export <project-id> --output video.mp4
+```
+
+`--download` (`-d`) saves to `<project-id>.mp4`; `--output` (`-o`) picks the path. Use `-r 720p,1080p` for renditions (default `1080p`) and `--force` to replace an existing file. Without `--download`/`--output`, the command only starts the export and prints `task_id` / `asset_id` (add `--wait` to wait for it).
 
 ### Project OTIO Export Command
 
