@@ -48,6 +48,8 @@ pub enum Command {
     Login,
     /// Remove the saved Tellers login.
     Logout,
+    /// Check whether a newer tellers release is available.
+    Update,
     Asset(AssetArgs),
     Project(ProjectArgs),
     Task(TaskArgs),
