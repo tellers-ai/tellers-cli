@@ -72,11 +72,10 @@ Run a prompt against the Tellers agent:
 
 | Flag | Description |
 |------|-------------|
-| `--no-interaction` | Single response only, no REPL. |
+| `--no-interaction` | Single response only, no REPL. With `--export-to`, also sends without asking to confirm the full prompt (needed when stdin is not a terminal). |
 | `--json-response` | Output the turn's result as JSON (`status`, `chat_id`, `projects`, `assets`, `message`), from `GET /agent/chat/{id}/result` (no interaction implied). |
 | `--export-to <DIR>` | Make the agent finish the job on its own, export each project it built to MP4, and download each to `DIR/<project name>.mp4` (no interaction implied). See below. |
 | `--export-rendition <RES>` | Rendition(s) for `--export-to` (`360p`…`4k`, repeat or comma-separate). Default `1080p`. |
-| `--show-instructions` | Print the instructions `--export-to` adds to your prompt (on stderr, before sending). |
 | `--export-force` | Replace existing files in the `--export-to` directory (otherwise `<name> (2).mp4`, …). |
 | `--tool <TOOL_ID>` | Enable a tool (repeat for multiple). Omit to use default tools from settings. |
 | `--llm-model <MODEL>` | LLM model (e.g. `gpt-5.4-2026-03-05`). |
@@ -107,7 +106,7 @@ tellers --llm-model gpt-5.4-2026-03-05 --tool tool_a --tool tool_b "Your prompt"
 tellers -i "Generate a video, with stock footage video of cats"
 ```
 
-**How `--export-to` works:** the CLI appends instructions to your prompt telling the agent to do the request without asking questions, export each project it built with the export tool (waiting for the render), and end its answer with one line per project:
+**How `--export-to` works:** sign in once with `tellers login`. Before anything is sent, the CLI shows the full prompt (yours plus the instructions below) and asks `Is this prompt valid? Send it? [y/n]`. On yes, it sends the prompt and waits; on no, nothing is sent. The CLI appends instructions to your prompt telling the agent to do the request without asking questions, export each project it built with the export tool (waiting for the render), and end its answer with one line per project:
 
 ```
 TELLERS_EXPORT {"project_id": "…", "project_name": "Golden Hour", "asset_id": "…", "completed": true}

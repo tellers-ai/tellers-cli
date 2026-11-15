@@ -28,8 +28,6 @@ pub struct ExportOptions {
     pub dir: PathBuf,
     pub renditions: Vec<String>,
     pub force: bool,
-    /// Print the appended instructions before sending (`--show-instructions`).
-    pub show_instructions: bool,
 }
 
 impl PromptOptions {
@@ -53,14 +51,12 @@ impl PromptOptions {
         dir: Option<PathBuf>,
         renditions: &[String],
         force: bool,
-        show_instructions: bool,
     ) -> Result<Self, String> {
         if let Some(dir) = dir {
             self.export = Some(ExportOptions {
                 dir,
                 renditions: project::parse_renditions(renditions)?,
                 force,
-                show_instructions,
             });
         }
         Ok(self)
@@ -222,6 +218,42 @@ fn parse_llm_model(s: &str) -> Option<LlmModel> {
     serde_json::from_str::<LlmModel>(&format!("\"{}\"", s)).ok()
 }
 
+/// The message as the agent receives it: the user's prompt, followed by the
+/// [`export_instructions`] with `--export-to`.
+fn full_message(message: String, opts: &PromptOptions) -> String {
+    match opts.export {
+        Some(ref export) => format!("{}{}", message, export_instructions(&export.renditions)),
+        None => message,
+    }
+}
+
+/// Shows the full prompt `--export-to` will send and asks whether to send
+/// it. All on stderr, so a `--background` answer on stdout stays clean.
+/// Without a terminal to ask on, fails and points at `--no-interaction`.
+pub fn confirm_full_prompt(prompt_text: &str, opts: &PromptOptions) -> Result<bool, String> {
+    use std::io::IsTerminal;
+    if !io::stdin().is_terminal() {
+        return Err("cannot ask to confirm the prompt without a terminal; pass --no-interaction to send it as is".to_string());
+    }
+    let full = full_message(prompt_text.to_string(), opts);
+    let rule = "─".repeat(60);
+    eprintln!("Full prompt to send:\n{}\n{}\n{}", rule, full.trim_end(), rule);
+    loop {
+        eprint!("Is this prompt valid? Send it? [y/n]: ");
+        let _ = io::stderr().flush();
+        let mut line = String::new();
+        match io::stdin().read_line(&mut line) {
+            Ok(0) | Err(_) => return Ok(false),
+            Ok(_) => {}
+        }
+        match line.trim().to_lowercase().as_str() {
+            "y" | "yes" => return Ok(true),
+            "n" | "no" => return Ok(false),
+            _ => {}
+        }
+    }
+}
+
 /// The request body for `POST /agent/messages`. JSON and export modes run the
 /// turn to the end on its own (`no_interaction`); export mode also appends
 /// [`export_instructions`] to the message.
@@ -230,17 +262,7 @@ fn build_agent_request(
     opts: &PromptOptions,
     chat_id: Option<&str>,
 ) -> Result<Value, String> {
-    let message = match opts.export {
-        Some(ref export) => {
-            let instructions = export_instructions(&export.renditions);
-            if export.show_instructions {
-                show_instructions(&instructions);
-            }
-            format!("{}{}", message, instructions)
-        }
-        None => message,
-    };
-    let mut req = AgentMessageRequest::new(message);
+    let mut req = AgentMessageRequest::new(full_message(message, opts));
     req.no_interaction = Some(opts.no_interaction());
     if let Some(ref tools) = opts.tools {
         req.tools = Some(tools.clone());
@@ -332,15 +354,6 @@ and \"completed\": false.\n",
         renditions = renditions.join(", "),
         marker = EXPORT_MARKER,
     )
-}
-
-/// Prints what the CLI adds to the user's prompt, in grey on stderr (so a
-/// `--background` answer on stdout stays clean).
-fn show_instructions(instructions: &str) {
-    eprintln!(
-        "\x1b[90m[added to your prompt by --export-to]{}\x1b[0m\n",
-        instructions.trim_end()
-    );
 }
 
 /// One export the agent reported on an [`EXPORT_MARKER`] line.
@@ -667,7 +680,7 @@ mod tests {
     #[test]
     fn export_mode_appends_instructions_and_runs_without_interaction() {
         let opts = PromptOptions::default()
-            .with_export(Some(PathBuf::from("out")), &["720p".to_string()], false, false)
+            .with_export(Some(PathBuf::from("out")), &["720p".to_string()], false)
             .unwrap();
         let body = build_agent_request("make a cat video".into(), &opts, None).unwrap();
         assert_eq!(body["no_interaction"], json!(true));

@@ -14,7 +14,8 @@ pub struct Cli {
     #[arg(long)]
     pub background: bool,
 
-    /// Disable interaction with the agent (single response, no REPL).
+    /// Disable interaction (single response, no REPL; with --export-to, send
+    /// without asking to confirm the full prompt).
     #[arg(long)]
     pub no_interaction: bool,
 
@@ -44,10 +45,6 @@ pub struct Cli {
     /// Replace existing files in the --export-to directory.
     #[arg(long, requires = "export_to")]
     pub export_force: bool,
-
-    /// Print the instructions --export-to appends to the prompt (to stderr).
-    #[arg(long, requires = "export_to")]
-    pub show_instructions: bool,
 
     /// Interactively set json_response, no_interaction, tools, and llm_model.
     #[arg(short, long)]
