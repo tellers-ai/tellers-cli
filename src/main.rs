@@ -120,9 +120,33 @@ fn main() {
                     cli.tools.clone(),
                     cli.llm_model.clone(),
                 );
+                opts = match opts.with_export(
+                    cli.export_to.clone(),
+                    &cli.export_renditions,
+                    cli.export_force,
+                ) {
+                    Ok(opts) => opts,
+                    Err(error) => {
+                        eprintln!("error: {}", error);
+                        std::process::exit(1);
+                    }
+                };
                 if cli.interactive {
                     match commands::prompt::run_interactive_options(&opts) {
                         Ok(interactive_opts) => opts = interactive_opts,
+                        Err(error) => {
+                            eprintln!("error: {}", error);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                if opts.export.is_some() && !cli.no_interaction {
+                    match commands::prompt::confirm_full_prompt(&prompt_text, &opts) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            eprintln!("Not sent.");
+                            return;
+                        }
                         Err(error) => {
                             eprintln!("error: {}", error);
                             std::process::exit(1);

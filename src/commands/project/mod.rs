@@ -3,7 +3,7 @@ use clap::{Args, Subcommand};
 mod export;
 mod export_otio;
 
-pub use export::{run as export_run, ExportArgs};
+pub use export::{export_and_download, parse_renditions, run as export_run, ExportArgs};
 pub use export_otio::{run as export_otio_run, ExportOtioArgs};
 
 #[derive(Args, Debug)]

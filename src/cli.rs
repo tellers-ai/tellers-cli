@@ -14,7 +14,8 @@ pub struct Cli {
     #[arg(long)]
     pub background: bool,
 
-    /// Disable interaction with the agent (single response, no REPL).
+    /// Disable interaction (single response, no REPL; with --export-to, send
+    /// without asking to confirm the full prompt).
     #[arg(long)]
     pub no_interaction: bool,
 
@@ -30,6 +31,20 @@ pub struct Cli {
     /// LLM model to use (e.g. gpt-5.4-2026-03-05).
     #[arg(long, value_name = "MODEL")]
     pub llm_model: Option<String>,
+
+    /// Have the agent do the whole job, export the project(s) to MP4, and report
+    /// them on a TELLERS_EXPORT line; then download each into DIR as
+    /// "<project name>.mp4" (no_interaction implied).
+    #[arg(long, value_name = "DIR")]
+    pub export_to: Option<std::path::PathBuf>,
+
+    /// Rendition(s) for --export-to (360p, 480p, 720p, 1080p, 1440p, 4k). Default 1080p.
+    #[arg(long = "export-rendition", value_name = "RESOLUTION", requires = "export_to")]
+    pub export_renditions: Vec<String>,
+
+    /// Replace existing files in the --export-to directory.
+    #[arg(long, requires = "export_to")]
+    pub export_force: bool,
 
     /// Interactively set json_response, no_interaction, tools, and llm_model.
     #[arg(short, long)]

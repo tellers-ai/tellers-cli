@@ -1,12 +1,15 @@
 use reqwest::header::AUTHORIZATION;
 use serde_json::Value;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use tellers_api_client::apis::configuration::Configuration;
 use tellers_api_client::models::agent_message_request::LlmModel;
+use tellers_api_client::models::asset_download_url_batch_request::Quality;
 use tellers_api_client::models::AgentMessageRequest;
 
 use crate::commands::agent_ws::{self, Auth, Sent};
-use crate::commands::api_config;
+use crate::commands::{api_config, asset, project};
+use crate::output;
 
 #[derive(Clone, Default, Debug)]
 pub struct PromptOptions {
@@ -14,6 +17,17 @@ pub struct PromptOptions {
     pub json_response: bool,
     pub tools: Option<Vec<String>>,
     pub llm_model: Option<String>,
+    pub export: Option<ExportOptions>,
+}
+
+/// `--export-to`: the prompt asks the agent to export what it made and name
+/// it on an [`EXPORT_MARKER`] line; once the turn ends, each export is
+/// downloaded into `dir` as `<project name>.mp4`.
+#[derive(Clone, Debug)]
+pub struct ExportOptions {
+    pub dir: PathBuf,
+    pub renditions: Vec<String>,
+    pub force: bool,
 }
 
 impl PromptOptions {
@@ -28,7 +42,29 @@ impl PromptOptions {
             json_response,
             tools: if tools.is_empty() { None } else { Some(tools) },
             llm_model,
+            export: None,
         }
+    }
+
+    pub fn with_export(
+        mut self,
+        dir: Option<PathBuf>,
+        renditions: &[String],
+        force: bool,
+    ) -> Result<Self, String> {
+        if let Some(dir) = dir {
+            self.export = Some(ExportOptions {
+                dir,
+                renditions: project::parse_renditions(renditions)?,
+                force,
+            });
+        }
+        Ok(self)
+    }
+
+    /// The turn runs to the end on its own, with no question back.
+    fn no_interaction(&self) -> bool {
+        self.no_interaction || self.json_response || self.export.is_some()
     }
 
 }
@@ -182,16 +218,52 @@ fn parse_llm_model(s: &str) -> Option<LlmModel> {
     serde_json::from_str::<LlmModel>(&format!("\"{}\"", s)).ok()
 }
 
-/// The request body for `POST /agent/messages`. JSON mode runs the turn to
-/// the end on its own (`no_interaction`), which is what its parsed result
-/// (projects, assets, summary) is built from.
+/// The message as the agent receives it: the user's prompt, followed by the
+/// [`export_instructions`] with `--export-to`.
+fn full_message(message: String, opts: &PromptOptions) -> String {
+    match opts.export {
+        Some(ref export) => format!("{}{}", message, export_instructions(&export.renditions)),
+        None => message,
+    }
+}
+
+/// Shows the full prompt `--export-to` will send and asks whether to send
+/// it. All on stderr, so a `--background` answer on stdout stays clean.
+/// Without a terminal to ask on, fails and points at `--no-interaction`.
+pub fn confirm_full_prompt(prompt_text: &str, opts: &PromptOptions) -> Result<bool, String> {
+    use std::io::IsTerminal;
+    if !io::stdin().is_terminal() {
+        return Err("cannot ask to confirm the prompt without a terminal; pass --no-interaction to send it as is".to_string());
+    }
+    let full = full_message(prompt_text.to_string(), opts);
+    let rule = "─".repeat(60);
+    eprintln!("Full prompt to send:\n{}\n{}\n{}", rule, full.trim_end(), rule);
+    loop {
+        eprint!("Is this prompt valid? Send it? [y/n]: ");
+        let _ = io::stderr().flush();
+        let mut line = String::new();
+        match io::stdin().read_line(&mut line) {
+            Ok(0) | Err(_) => return Ok(false),
+            Ok(_) => {}
+        }
+        match line.trim().to_lowercase().as_str() {
+            "y" | "yes" => return Ok(true),
+            "n" | "no" => return Ok(false),
+            _ => {}
+        }
+    }
+}
+
+/// The request body for `POST /agent/messages`. JSON and export modes run the
+/// turn to the end on its own (`no_interaction`); export mode also appends
+/// [`export_instructions`] to the message.
 fn build_agent_request(
     message: String,
     opts: &PromptOptions,
     chat_id: Option<&str>,
 ) -> Result<Value, String> {
-    let mut req = AgentMessageRequest::new(message);
-    req.no_interaction = Some(opts.no_interaction || opts.json_response);
+    let mut req = AgentMessageRequest::new(full_message(message, opts));
+    req.no_interaction = Some(opts.no_interaction());
     if let Some(ref tools) = opts.tools {
         req.tools = Some(tools.clone());
     }
@@ -257,8 +329,171 @@ impl TurnPrinter {
     }
 }
 
+/// Starts the line on which the agent reports each export, followed by one
+/// JSON object: `{"project_id", "project_name", "asset_id", "completed"}`.
+pub const EXPORT_MARKER: &str = "TELLERS_EXPORT";
+
+/// Appended to the user's prompt with `--export-to`: do the whole job without
+/// asking, export the result, and report it on a line the CLI can parse.
+fn export_instructions(renditions: &[String]) -> String {
+    format!(
+        "\n\n---\n\
+Instructions from the Tellers CLI (the user is not watching and cannot answer):\n\
+1. Do the whole request above on your own, without asking any question. \
+When something is unclear, make a reasonable choice and go on. \
+Build the result in a Tellers project (create one if needed) and give it a short, descriptive name.\n\
+2. When the edit is finished, export each project you built or changed to MP4 with \
+the export tool, at {renditions}, with wait_for_completion set to true and notify_user set to true.\n\
+3. End your final message with one line per exported project, exactly in this form, \
+on its own line, with nothing else on that line and no code block around it:\n\
+{marker} {{\"project_id\": \"<project uuid>\", \"project_name\": \"<project name>\", \
+\"asset_id\": \"<export asset uuid>\", \"completed\": <true or false>}}\n\
+Use the export asset ID the export tool returned, and its completed value. \
+If the export failed or you could not export, still write the line, with \"asset_id\": null \
+and \"completed\": false.\n",
+        renditions = renditions.join(", "),
+        marker = EXPORT_MARKER,
+    )
+}
+
+/// One export the agent reported on an [`EXPORT_MARKER`] line.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct ReportedExport {
+    pub project_id: String,
+    #[serde(default)]
+    pub project_name: Option<String>,
+    #[serde(default)]
+    pub asset_id: Option<String>,
+    #[serde(default)]
+    pub completed: bool,
+}
+
+/// Every [`EXPORT_MARKER`] line of the agent's answer, in order, one per
+/// project (the last line wins). Tolerates markdown around the line
+/// (backticks, bullets, bold) and a `:` after the marker.
+fn parse_export_lines(answer: &str) -> Vec<ReportedExport> {
+    let mut exports: Vec<ReportedExport> = Vec::new();
+    for line in answer.lines() {
+        let Some(at) = line.find(EXPORT_MARKER) else {
+            continue;
+        };
+        let rest = line[at + EXPORT_MARKER.len()..].trim_start_matches(|c: char| c == ':' || c.is_whitespace());
+        let (Some(open), Some(close)) = (rest.find('{'), rest.rfind('}')) else {
+            continue;
+        };
+        if close < open {
+            continue;
+        }
+        let Ok(export) = serde_json::from_str::<ReportedExport>(&rest[open..=close]) else {
+            continue;
+        };
+        if export.project_id.trim().is_empty() {
+            continue;
+        }
+        match exports.iter_mut().find(|e| e.project_id == export.project_id) {
+            Some(seen) => *seen = export,
+            None => exports.push(export),
+        }
+    }
+    exports
+}
+
+/// A project name made safe as a file name (path separators, reserved and
+/// control characters replaced), or `None` when nothing usable is left.
+fn file_stem(name: &str) -> Option<String> {
+    let cleaned: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    let trimmed = cleaned.trim().trim_matches('.').trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.chars().take(150).collect())
+}
+
+/// `<dir>/<project name>.mp4`; without `force`, a free `<name> (2).mp4`, …
+/// when that file exists already. Falls back to the project ID as the name.
+fn export_destination(dir: &std::path::Path, export: &ReportedExport, force: bool) -> PathBuf {
+    let stem = export
+        .project_name
+        .as_deref()
+        .and_then(file_stem)
+        .unwrap_or_else(|| export.project_id.clone());
+    let first = dir.join(format!("{}.mp4", stem));
+    if force || !first.exists() {
+        return first;
+    }
+    (2..)
+        .map(|n| dir.join(format!("{} ({}).mp4", stem, n)))
+        .find(|path| !path.exists())
+        .expect("an unused file name")
+}
+
+/// Downloads each export the agent reported into `export.dir`. An export the
+/// agent did not finish (no asset, or not completed) is redone by the CLI.
+async fn download_reported_exports(
+    cfg: &Configuration,
+    auth: &Auth<'_>,
+    answer: &str,
+    export: &ExportOptions,
+) -> Result<Vec<PathBuf>, String> {
+    let reported = parse_export_lines(answer);
+    if reported.is_empty() {
+        return Err(format!(
+            "the agent's answer has no {} line: nothing to download",
+            EXPORT_MARKER
+        ));
+    }
+    std::fs::create_dir_all(&export.dir)
+        .map_err(|e| format!("failed to create {}: {}", export.dir.display(), e))?;
+    let mut files = Vec::with_capacity(reported.len());
+    for item in reported {
+        let destination = export_destination(&export.dir, &item, export.force);
+        match item.asset_id.as_deref().filter(|_| item.completed) {
+            Some(asset_id) => {
+                output::info(format!("Downloading export {} to {}...", asset_id, destination.display()));
+                asset::download_asset(
+                    cfg,
+                    auth.api_key,
+                    auth.bearer,
+                    asset_id,
+                    Quality::Highest,
+                    &destination,
+                    export.force,
+                )
+                .await?;
+            }
+            None => {
+                output::warning(format!(
+                    "The agent did not finish exporting project {}; exporting it now",
+                    item.project_id
+                ));
+                project::export_and_download(
+                    cfg,
+                    auth.api_key,
+                    auth.bearer,
+                    &item.project_id,
+                    export.renditions.clone(),
+                    &destination,
+                    export.force,
+                )
+                .await?;
+            }
+        }
+        output::success(format!("Saved {}", destination.display()));
+        files.push(destination);
+    }
+    Ok(files)
+}
+
 /// Sends one message and prints the turn that takes it (or, in JSON mode,
-/// the turn's parsed result). Returns the chat id, for the next message.
+/// the turn's parsed result); with `--export-to`, then downloads what the
+/// agent exported. Returns the chat id, for the next message.
 async fn send_and_print(
     cfg: &Configuration,
     auth: &Auth<'_>,
@@ -274,7 +509,20 @@ async fn send_and_print(
         return Ok(sent.chat_id);
     }
     let mut printer = TurnPrinter::new();
-    agent_ws::follow_turn(cfg, auth, &sent, |event, data| printer.on_event(event, data)).await?;
+    let mut answer = String::new();
+    agent_ws::follow_turn(cfg, auth, &sent, |event, data| {
+        printer.on_event(event, data);
+        if event == "response.output_text.delta" {
+            if let Some(delta) = data.get("delta").and_then(Value::as_str) {
+                answer.push_str(delta);
+            }
+        }
+    })
+    .await?;
+    println!();
+    if let Some(ref export) = opts.export {
+        download_reported_exports(cfg, auth, &answer, export).await?;
+    }
     Ok(sent.chat_id)
 }
 
@@ -293,7 +541,7 @@ pub fn run_interactive(
     let rt = runtime()?;
 
     let mut chat_id = rt.block_on(send_and_print(&cfg, &auth, prompt_text, &opts, None))?;
-    if opts.no_interaction || opts.json_response {
+    if opts.no_interaction() {
         return Ok(());
     }
 
@@ -355,9 +603,91 @@ pub fn run_background(
             _ => {}
         })
         .await?;
-        match error {
-            Some(message) if answer.is_empty() => Err(message),
-            _ => Ok(answer),
+        if let (Some(message), true) = (&error, answer.is_empty()) {
+            return Err(message.clone());
         }
+        if let Some(ref export) = opts.export {
+            let files = download_reported_exports(&cfg, &auth, &answer, export).await?;
+            let paths: Vec<String> = files.iter().map(|f| f.display().to_string()).collect();
+            return Ok(format!("{}\n{}", answer.trim_end(), paths.join("\n")));
+        }
+        Ok(answer)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const P1: &str = "11111111-1111-1111-1111-111111111111";
+    const P2: &str = "22222222-2222-2222-2222-222222222222";
+
+    #[test]
+    fn export_lines_are_parsed_through_markdown() {
+        let answer = format!(
+            "Done!\n\
+             - `TELLERS_EXPORT {{\"project_id\": \"{P1}\", \"project_name\": \"Cats\", \"asset_id\": \"a1\", \"completed\": true}}`\n\
+             **TELLERS_EXPORT:** {{\"project_id\": \"{P2}\", \"asset_id\": null, \"completed\": false}}\n\
+             TELLERS_EXPORT not json\n"
+        );
+        let parsed = parse_export_lines(&answer);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].project_name.as_deref(), Some("Cats"));
+        assert_eq!(parsed[0].asset_id.as_deref(), Some("a1"));
+        assert!(parsed[0].completed);
+        assert_eq!(parsed[1].project_id, P2);
+        assert!(parsed[1].asset_id.is_none() && !parsed[1].completed);
+    }
+
+    #[test]
+    fn last_export_line_of_a_project_wins() {
+        let answer = format!(
+            "TELLERS_EXPORT {{\"project_id\": \"{P1}\", \"completed\": false}}\n\
+             TELLERS_EXPORT {{\"project_id\": \"{P1}\", \"asset_id\": \"a2\", \"completed\": true}}"
+        );
+        let parsed = parse_export_lines(&answer);
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].asset_id.as_deref(), Some("a2"));
+    }
+
+    #[test]
+    fn project_names_become_safe_file_names() {
+        assert_eq!(file_stem("Cats / Dogs: v2?").as_deref(), Some("Cats _ Dogs_ v2_"));
+        assert_eq!(file_stem("  ..  "), None);
+        assert_eq!(file_stem("../etc").as_deref(), Some("_etc"));
+    }
+
+    #[test]
+    fn destination_uses_the_name_and_avoids_overwrites() {
+        let dir = std::env::temp_dir().join(format!("tellers-cli-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let named = ReportedExport {
+            project_id: P1.into(),
+            project_name: Some("My cats".into()),
+            asset_id: None,
+            completed: false,
+        };
+        assert_eq!(export_destination(&dir, &named, false), dir.join("My cats.mp4"));
+        std::fs::write(dir.join("My cats.mp4"), b"x").unwrap();
+        assert_eq!(export_destination(&dir, &named, false), dir.join("My cats (2).mp4"));
+        assert_eq!(export_destination(&dir, &named, true), dir.join("My cats.mp4"));
+        let unnamed = ReportedExport { project_name: None, ..named };
+        assert_eq!(export_destination(&dir, &unnamed, false), dir.join(format!("{P1}.mp4")));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn export_mode_appends_instructions_and_runs_without_interaction() {
+        let opts = PromptOptions::default()
+            .with_export(Some(PathBuf::from("out")), &["720p".to_string()], false)
+            .unwrap();
+        let body = build_agent_request("make a cat video".into(), &opts, None).unwrap();
+        assert_eq!(body["no_interaction"], json!(true));
+        let message = body["message"].as_str().unwrap();
+        assert!(message.starts_with("make a cat video"));
+        assert!(message.contains(EXPORT_MARKER));
+        assert!(message.contains("720p"));
+        assert!(message.contains("wait_for_completion"));
+    }
 }

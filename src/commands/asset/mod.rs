@@ -4,7 +4,7 @@ mod list;
 mod download;
 mod set_anonymous_read;
 
-pub use download::{run as download_run, DownloadArgs};
+pub use download::{download_asset, run as download_run, DownloadArgs};
 pub use list::{run as list_run, ListArgs};
 pub use set_anonymous_read::{run as set_anonymous_read_run, SetAnonymousReadArgs};
 
