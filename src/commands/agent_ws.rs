@@ -257,8 +257,8 @@ mod tests {
     #[test]
     fn websocket_url_follows_the_api_scheme() {
         assert_eq!(
-            users_ws_url("https://api.prod.aws.tellers.ai"),
-            "wss://api.prod.aws.tellers.ai/users/ws"
+            users_ws_url("https://api.tellers.ai"),
+            "wss://api.tellers.ai/users/ws"
         );
         assert_eq!(users_ws_url("http://localhost:8000/"), "ws://localhost:8000/users/ws");
     }

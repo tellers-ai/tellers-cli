@@ -2,7 +2,7 @@ use tellers_api_client::apis::configuration::Configuration;
 
 pub fn get_api_base() -> String {
     std::env::var("TELLERS_API_BASE")
-        .unwrap_or_else(|_| "https://api.prod.aws.tellers.ai".to_string())
+        .unwrap_or_else(|_| "https://api.tellers.ai".to_string())
 }
 
 pub fn get_api_key(api_key_arg: Option<String>) -> Result<String, String> {
