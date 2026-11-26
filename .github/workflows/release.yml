@@ -102,6 +102,14 @@ jobs:
           } > CHANGELOG.new
           mv CHANGELOG.new CHANGELOG.md
 
+      # Slack #dev-general hears about a release twice: now, with the notes,
+      # and again from notify-slack once it is live (or the run stopped).
+      - name: Tell Slack the release is starting
+        env:
+          SLACK_RELEASE_WEBHOOK_URL: ${{ secrets.SLACK_RELEASE_WEBHOOK_URL }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: scripts/slack_release_notify.sh started "Tellers CLI" "$VERSION" release-notes.md
+
       - name: Commit and tag
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
@@ -308,3 +316,33 @@ jobs:
           git add Formula/tellers.rb
           git diff --cached --quiet || git commit -m "tellers ${VERSION}"
           git push
+
+  # ---------------------------------------------------------------------------
+  # Slack #dev-general, second message: the release is live, or the run
+  # stopped on the way. Only when the first one was sent (see `prepare`).
+  # ---------------------------------------------------------------------------
+  notify-slack:
+    needs: [prepare, build, release]
+    if: ${{ always() && needs.prepare.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/slack_release_notify.sh
+          sparse-checkout-cone-mode: false
+      - name: Tell Slack how the release ended
+        env:
+          SLACK_RELEASE_WEBHOOK_URL: ${{ secrets.SLACK_RELEASE_WEBHOOK_URL }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASED: ${{ needs.release.result == 'success' }}
+          CANCELLED: ${{ contains(needs.*.result, 'cancelled') }}
+          RELEASE_WHERE: "published"
+        run: |
+          if [ "$RELEASED" = "true" ]; then kind=released
+          elif [ "$CANCELLED" = "true" ]; then kind=cancelled
+          else kind=failed
+          fi
+          scripts/slack_release_notify.sh "$kind" "Tellers CLI" "$VERSION"
